@@ -98,6 +98,12 @@ unsigned char *cameraBuf;
 
 volatile unsigned char camera_restart_flag = 0;
 
+void GC0308_SetLightMode(SENSOR_LightMode light_mode);
+void GC0308_SetColorSaturation(SENSOR_ColorSaturation sat);
+void GC0308_SetBrightness(SENSOR_Brightness bright);
+void GC0308_SetContrast(SENSOR_Contarst contrast);
+void GC0308_SetSpecialEffects(SENSOR_SpecailEffects eft);
+
 static int camera_mem_create(CAMERA_JpegCfg *jpeg_cfg, CAMERA_Mgmt *mgmt)
 {
 
