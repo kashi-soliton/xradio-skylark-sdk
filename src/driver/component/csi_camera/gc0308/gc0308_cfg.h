@@ -31,7 +31,7 @@
 #define __GC0308_CFG_H__
 
 //#define WIN_MODE_QVGA
-#define SUBSAMPLE_1_2
+//#define SUBSAMPLE_1_2
 
 //初始化寄存器序列及其对应的值
 const uint8_t gc0308_init_reg_tbl[][2]=

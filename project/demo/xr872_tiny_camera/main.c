@@ -15,8 +15,10 @@
 #include "http_server.h"
 #include "tcp_server.h"
 
-char *ssid = "SmartHome-Next";
-char *pwd = "1234qq1234";
+//char *ssid = "SmartHome-Next";
+//char *pwd = "1234qq1234";
+char *ssid = "S15303 2947";
+char *pwd = "1?F17z72";
 //连接WiFi现在 - 使用配置的信息
 unsigned char connectByConfig(void){
 
@@ -52,8 +54,8 @@ int main(void)
 	platform_init();		
 
 	printf("XR872 init\r\n");
-	//connectByConfig();
-	startAP();
+	connectByConfig();
+	//startAP();
 	OS_Sleep(2);
 	initCameraSensor();
 	OS_Sleep(2);
@@ -63,7 +65,7 @@ int main(void)
 	
 	while (1) {	
 		status++;
-		OS_Sleep(1);
+		OS_Sleep(10);
 		printf("%d  CameraRate:%d \r\n",status,getCameraFrameCount());
 	}
 	return 0;

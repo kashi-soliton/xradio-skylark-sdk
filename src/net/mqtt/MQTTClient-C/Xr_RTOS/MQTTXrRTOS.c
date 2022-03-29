@@ -678,7 +678,7 @@ int TLSConnectNetwork(Network *n, const char *addr, const char *port,
         mbedtls_ssl_conf_authmode(n->conf, MBEDTLS_SSL_VERIFY_REQUIRED);
     else
         mbedtls_ssl_conf_authmode(n->conf, MBEDTLS_SSL_VERIFY_NONE);
-	mbedtls_ssl_conf_read_timeout(n->conf, TLS_RECV_TIMOUT_DEFAULT); /* recv timeout 9 min */
+    mbedtls_ssl_conf_read_timeout(n->conf, TLS_RECV_TIMOUT_DEFAULT); /* recv timeout 9 min */
 
     mbedtls_ssl_conf_ca_chain(n->conf, n->cacertl, NULL);
 
