@@ -336,7 +336,7 @@ int camera_get_image()
 			memcpy(&cameraBuf[4],addr,jpeg_info.size);
 			BaseType_t xStatus;
 			//最大10ミリ秒待機を送信
-			xStatus = xQueueSend(cameraJpegSendQueue, cameraBuf, pdMS_TO_TICKS(10));
+			xStatus = xQueueSend(cameraJpegSendQueue, cameraBuf, pdMS_TO_TICKS(0));
 			
 			if(xStatus !=pdPASS){
 				//送信に失敗しました

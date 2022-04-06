@@ -58,7 +58,7 @@
 #define IMAGE_WIDTH				(320)
 #define IMAGE_HEIGHT			(240)
 
-#if 0
+#if 1
 #define SENSOR_FUNC_INIT	HAL_GC0308_Init
 #define SENSOR_FUNC_DEINIT	HAL_GC0308_DeInit
 #define SENSOR_FUNC_IOCTL	HAL_GC0308_IoCtl
@@ -250,7 +250,8 @@ int qr_scan_test()
 		} else {
 			printf("camera take photo fail\n");
 		}
-		OS_MSleep(1000);
+		//OS_MSleep(1000);
+		OS_MSleep(10);
 	}
 
     /* clean up */
