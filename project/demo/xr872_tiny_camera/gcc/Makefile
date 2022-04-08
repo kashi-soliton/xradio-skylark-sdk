@@ -14,6 +14,9 @@ ROOT_PATH := ../../../..
 
 include $(ROOT_PATH)/gcc.mk
 
+# Special to use OS_timer
+CC_FLAGS += --specs=nosys.specs
+
 # ----------------------------------------------------------------------------
 # project name and project root path
 # ----------------------------------------------------------------------------

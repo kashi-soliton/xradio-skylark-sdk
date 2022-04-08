@@ -15,6 +15,8 @@
 #include "http_server.h"
 #include "tcp_server.h"
 
+#include "mimamori.h"
+
 //char *ssid = "SmartHome-Next";
 //char *pwd = "1234qq1234";
 char *ssid = "S15303 2947";
@@ -47,27 +49,90 @@ unsigned char startAP(void)
 	return 0;
 }
 
+//static int cc = 0;
+#define TIMER
+#ifdef TIMER
+OS_TimerCallback_t timercallback(void *arg)
+{
+	OS_Status ret;
+	private_t *p = (private_t*) arg;
+	ret = OS_MutexLock(&p->mu, 5000);
+	if (ret != OS_OK) {
+		printf("OS_MutexLock timeout\n");
+	}
+	p->do_capture = 1;
+	if (ret != OS_OK) {
+		printf("OS_MutexUnlock timeout\n");
+	}
+	ret = OS_MutexUnlock(&p->mu);
+	//printf("cb: %d\n", p->count++);
+	p->count++;
+	return NULL;
+}
+#endif
 
 int main(void)
 {
+#ifdef TIMER
+	OS_Status ret = 0;
+	OS_Timer_t timer_id;
+#endif
+	private_t private;
 	unsigned int status = 0;
 	platform_init();		
 
 	printf("XR872 init\r\n");
+	memset(&private, 0, sizeof(private));
+	ret = OS_MutexCreate(&private.mu);
+	if (ret != OS_OK) {
+		printf("Failed: OS_MutexCreate\n");
+		return (1);
+	}
 	connectByConfig();
 	//startAP();
 	OS_Sleep(2);
-	initCameraSensor();
+	initCameraSensor(&private);
 	OS_Sleep(2);
 	initHttpServer();
 	OS_Sleep(2);
 	initTcpServer();
 	
+#ifdef TIMER
+	OS_TimerSetInvalid(&timer_id);
+	ret = OS_TimerCreate(&timer_id, OS_TIMER_PERIODIC,
+			(OS_TimerCallback_t) timercallback, &private, 100);
+	if (ret != OS_OK) {
+		printf("Failed: OS_TimerCreate\n");
+	}
+	ret = OS_TimerStart(&timer_id);
+	if (ret) {
+		printf("Failed: OS_TimerStart\n");
+	}
+#endif
+
 	while (1) {	
 		status++;
-		OS_Sleep(10);
-		printf("%d  CameraRate:%d \r\n",status,getCameraFrameCount());
+		uint32_t time = OS_TicksToMSecs(OS_GetTicks());
+		getCameraStatus(&private);
+		printf("%d:%08u Quality:%u, Max_cost:%u, Max_size:%u\n",
+				status,
+				time,
+				private.quality,
+				private.max_cost,
+				private.max_size
+		      );
+		//printf("%d  CameraRate:%d \r\n",status,getCameraFrameCount());
+		OS_Sleep(60);
 	}
+
+#ifdef TIMER
+	ret = OS_TimerStop(&timer_id);
+	ret = OS_TimerDelete(&timer_id);
+	if (ret) {
+		printf("Failed: OS_TimerStart\n");
+	}
+#endif
+
 	return 0;
 
 }

@@ -3,8 +3,10 @@
 
 
 //初始化摄像头
-void initCameraSensor(void);
+void initCameraSensor(void *arg);
 
+//
+int getCameraStatus(void *arg);
 //
 unsigned char getCameraFrameCount(void);
 
