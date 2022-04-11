@@ -12,6 +12,10 @@ typedef struct private_s {
         uint32_t max_size;
 	uint32_t max_cost;
 	uint32_t quality;
+	uint8_t *jpeg_buf;
+	uint32_t jpeg_len;
+	uint32_t jpeg_ready;
+        OS_Mutex_t jpeg_mu;
 } private_t;
 
 #ifdef __cplusplus

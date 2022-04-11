@@ -83,14 +83,7 @@ static uint8_t* gmpartaddr;
 static uint32_t gmpartsize;
 #endif
 
-
-//信号送信bufを作成します
-QueueHandle_t cameraJpegSendQueue;
-#define CameraQueueLength		1
-#define CameraQueueItemSize		(64*1024)
-
-//画像が通知されるとき、長さを前に追加する必要があるため、別のBuffer jpegimageBufferが必要です
-unsigned char *cameraBuf;		
+static private_t *pv;
 
 volatile unsigned char camera_restart_flag = 0;
 
@@ -133,10 +126,6 @@ static int camera_mem_create(CAMERA_JpegCfg *jpeg_cfg, CAMERA_Mgmt *mgmt)
 							mgmt->yuv_buf.size);//after yuv data
 #endif
 	mgmt->jpeg_buf[0].size = JPEG_BUFF_SIZE;
-
-	//mgmt->jpeg_buf[1].addr = (uint8_t *)ALIGN_1K((uint32_t)mgmt->jpeg_buf[0].addr+JPEG_BUFF_SIZE+ CAMERA_JPEG_HEADER_LEN);
-	//mgmt->jpeg_buf[1].size = JPEG_BUFF_SIZE;
-
 
 	if ((mgmt->yuv_buf.addr + mgmt->yuv_buf.size) > end_addr ||
 			(mgmt->jpeg_buf[0].addr + mgmt->jpeg_buf[0].size) > end_addr) {
@@ -295,27 +284,26 @@ static int camera_init()
 	return 0;
 }
 
-static uint32_t max_cost = 0;
-static uint32_t max_size = 0;
-int camera_get_image()
+//static uint32_t max_cost = 0;
+//static uint32_t max_size = 0;
+int camera_get_image(private_t *p)
 {
 	uint8_t *addr = NULL;
+	OS_Status status;
 	CAMERA_JpegBuffInfo jpeg_info;
 	CAMERA_OutFmt fmt;
 	fmt = CAMERA_OUT_YUV420;
 
 	//これは元の画像を取得するためのものです
-	uint32_t time = OS_TicksToMSecs(OS_GetTicks());
+	//uint32_t time = OS_TicksToMSecs(OS_GetTicks());
 	int ret = HAL_CAMERA_CaptureImage(fmt, &jpeg_info, 1);
-	uint32_t cost = OS_TicksToMSecs(OS_GetTicks()) - time;
+	//uint32_t cost = OS_TicksToMSecs(OS_GetTicks()) - time;
 
 	if (ret == -1) {
 		printf("capture image failed\r\n");
 		return -1;
 	}
-	if (cost > max_cost) max_cost = cost;
-	//if (cost > 60) printf("capture image cost: %dms\n", cost);
-	//printf("capture time: %08u\n", time);
+	//if (cost > max_cost) max_cost = cost;
 
 	if (camera_cfg.jpeg_cfg.jpeg_en) {
 		ret = HAL_CAMERA_CaptureImage(CAMERA_OUT_JPEG, &jpeg_info, 0);
@@ -324,41 +312,38 @@ int camera_get_image()
 			return -1;
 		}
 		//printf("Q:%d, jpeg image cost: %d ms, size: %d bytes\n", camera_cfg.jpeg_cfg.quality, cost, jpeg_info.size);
-		if (jpeg_info.size > max_size) max_size = jpeg_info.size;
+		//if (jpeg_info.size > max_size) max_size = jpeg_info.size;
+
+		//printf("jpeg_info.buff_index: %d\n", jpeg_info.buff_index);
 
 
 		/* jpeg data*/
 		jpeg_info.size += CAMERA_JPEG_HEADER_LEN;
 		addr = mem_mgmt.jpeg_buf[jpeg_info.buff_index].addr - CAMERA_JPEG_HEADER_LEN;
 
-		if (jpeg_info.size<=CameraQueueItemSize-4){
-			cameraBuf[0] = (jpeg_info.size>>24)&0xff;
-			cameraBuf[1] = (jpeg_info.size>>16)&0xff;
-			cameraBuf[2] = (jpeg_info.size>>8)&0xff;
-			cameraBuf[3] = jpeg_info.size&0xff;
-
-			memcpy(&cameraBuf[4],addr,jpeg_info.size);
-			BaseType_t xStatus;
-			//最大10ミリ秒待機を送信
-			xStatus = xQueueSend(cameraJpegSendQueue, cameraBuf, pdMS_TO_TICKS(0));
-			
-			if(xStatus !=pdPASS){
-				//送信に失敗しました
-				//printf("audioNetSendQueue full\r\n");
+		if (jpeg_info.size <= JPEG_BUFF_SIZE) {
+			status = OS_MutexLock(&p->jpeg_mu, 5000);
+			if (status != OS_OK) {
+				printf("Failed: OS_MutexLock\n");
 				return -1;
 			}
+			memcpy(p->jpeg_buf, addr, jpeg_info.size);
+			p->jpeg_len = jpeg_info.size;
+			if (p->jpeg_ready) printf("Thrown a picture!\n");
+			p->jpeg_ready = 1;
+			OS_MutexUnlock(&p->jpeg_mu);
 		} else {
-			printf("Camera Queue Size small for img:%d : %d\r\n",jpeg_info.size,CameraQueueItemSize);
+			printf("JPEG_BUFF_SIZE small for img:%d : %d\r\n", jpeg_info.size, JPEG_BUFF_SIZE);
 			camera_cfg.jpeg_cfg.quality = 30; 
 			camera_restart_flag = 1;
 			return -1;
 		}
-		
 	}
 
 	return 0;
 }
 
+/*
 int getCameraStatus(void *arg)
 {
 	private_t *p = (private_t*) arg;
@@ -369,6 +354,7 @@ int getCameraStatus(void *arg)
 	p->quality = camera_cfg.jpeg_cfg.quality;
 	return 0;
 }
+*/
 
 static void camera_deinit()
 {
@@ -385,8 +371,15 @@ unsigned char frameCount = 0;
 ///thread
 static void thread_camera_Fun(void *arg){
 	private_t *p = (private_t*) arg;
+	pv = p;
 	OS_Status ret;
 	int32_t do_capture = 0;
+	p->jpeg_buf = malloc(JPEG_BUFF_SIZE);
+	if (p->jpeg_buf == NULL) {
+		printf("malloc");
+		exit(EXIT_FAILURE);
+	}
+	memset(p->jpeg_buf, 0, JPEG_BUFF_SIZE);
 	camera_init();
 	while(1){
 		if(camera_restart_flag!=0){
@@ -406,15 +399,14 @@ static void thread_camera_Fun(void *arg){
 			do_capture = p->do_capture;
 			p->do_capture = 0;
 			OS_MutexUnlock(&p->mu);
-			if (do_capture == 1) break;
+			if (do_capture == 1) break;	// every 100 ms
 			OS_MSleep(1);
 		} while (1);
-		camera_get_image();
-		//OS_MSleep(5);
-		//OS_MSleep(500);
+		camera_get_image(p);
 		frameCount++;
 	}
 	
+	free(p->jpeg_buf);
 	camera_deinit();
 }
 
@@ -433,30 +425,6 @@ OS_Thread_t thread_camera;
 //カメラを初期化します
 void initCameraSensor(void *arg)
 {
-	if(cameraJpegSendQueue==NULL){
-		printf("Create cameraJpegSendQueue\r\n");
-		cameraJpegSendQueue = xQueueCreate(CameraQueueLength, CameraQueueItemSize);
-	}else{
-		printf("cameraJpegSendQueue have been create\r\n");
-	}
-	
-	if(cameraJpegSendQueue==NULL){
-		printf("cameraJpegSendQueue malloc failed can't start Camera Thread");
-		return ;
-	}
-	
-	if(cameraBuf==NULL){
-		printf("Create cameraBuf\r\n");
-		cameraBuf = (uint8_t*)psram_malloc(CameraQueueItemSize);
-	}else{
-		printf("cameraBuf have been create\r\n");
-	}
-	
-	if(cameraBuf==NULL){
-		printf("cameraBuf malloc failed can't start Camera Thread");
-		return ;
-	}
-	
 	if (OS_ThreadCreate(&thread_camera,"thread_camera",thread_camera_Fun,arg,OS_PRIORITY_NORMAL,THREAD_CAMERA_STACK_SIZE) != OS_OK) {			
 		printf("thread camera create error\n");
 	}
@@ -468,17 +436,32 @@ void initCameraSensor(void *arg)
 int getCameraSensorImg(unsigned char *buf,unsigned int maxLen)
 {
 	unsigned int imgLen = 0;
-	BaseType_t xStatus;
-	xStatus = xQueueReceive(cameraJpegSendQueue, buf, pdMS_TO_TICKS(300));
-	if(xStatus == pdPASS){
-		imgLen = buf[0];	imgLen = imgLen<<8;
-		imgLen |= buf[1];	imgLen = imgLen<<8;
-		imgLen |= buf[2];	imgLen = imgLen<<8;
-		imgLen |= buf[3];
-		return imgLen;
+	OS_Status ret;
+	uint32_t ready = 0;
+	if (pv == NULL) {
+		printf("Failed: pv == NULL\n");
+		return -1;
 	}
-	printf("get img error,camera thread not run\r\n");
-	return 0;
+	uint32_t time = OS_TicksToMSecs(OS_GetTicks());
+	while (ready == 0) {
+		ret = OS_MutexLock(&pv->jpeg_mu, 5000);
+		if (ret != OS_OK) {
+			printf("Failed: OS_MutexLock\n");
+			OS_MSleep(1);
+			return -1;
+		}
+		ready = pv->jpeg_ready;
+		if (ready) {
+			memcpy(buf, pv->jpeg_buf, pv->jpeg_len);
+			pv->jpeg_ready = 0;
+			imgLen = pv->jpeg_len;
+		}
+		OS_MutexUnlock(&pv->jpeg_mu);
+		if (ready == 0) OS_MSleep(1);
+	}
+	uint32_t cost = OS_TicksToMSecs(OS_GetTicks()) - time;
+	printf("getCameraSensorImg cost:%u\n", cost);
+	return imgLen;
 }
 //カメラの初期化を終了します
 void deinitCameraSensor(void)

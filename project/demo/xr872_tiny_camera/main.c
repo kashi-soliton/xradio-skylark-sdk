@@ -78,14 +78,19 @@ int main(void)
 	OS_Timer_t timer_id;
 #endif
 	private_t private;
-	unsigned int status = 0;
+	//unsigned int status = 0;
 	platform_init();		
 
 	printf("XR872 init\r\n");
 	memset(&private, 0, sizeof(private));
 	ret = OS_MutexCreate(&private.mu);
 	if (ret != OS_OK) {
-		printf("Failed: OS_MutexCreate\n");
+		printf("Failed: OS_MutexCreate mu\n");
+		return (1);
+	}
+	ret = OS_MutexCreate(&private.jpeg_mu);
+	if (ret != OS_OK) {
+		printf("Failed: OS_MutexCreate jpeg_mu\n");
 		return (1);
 	}
 	connectByConfig();
@@ -111,16 +116,16 @@ int main(void)
 #endif
 
 	while (1) {	
-		status++;
-		uint32_t time = OS_TicksToMSecs(OS_GetTicks());
-		getCameraStatus(&private);
-		printf("%d:%08u Quality:%u, Max_cost:%u, Max_size:%u\n",
-				status,
-				time,
-				private.quality,
-				private.max_cost,
-				private.max_size
-		      );
+		//status++;
+		//uint32_t time = OS_TicksToMSecs(OS_GetTicks());
+		//getCameraStatus(&private);
+		//printf("%d:%08u Quality:%u, Max_cost:%u, Max_size:%u\n",
+				//status,
+				//time,
+				//private.quality,
+				//private.max_cost,
+				//private.max_size
+		      //);
 		//printf("%d  CameraRate:%d \r\n",status,getCameraFrameCount());
 		OS_Sleep(60);
 	}
