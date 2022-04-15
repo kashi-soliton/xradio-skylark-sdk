@@ -98,9 +98,9 @@ int main(void)
 	OS_Sleep(2);
 	initCameraSensor(&private);
 	OS_Sleep(2);
-	initHttpServer();
+	initHttpServer(&private);
 	OS_Sleep(2);
-	initTcpServer();
+	initTcpServer(&private);
 	
 #ifdef TIMER
 	OS_TimerSetInvalid(&timer_id);

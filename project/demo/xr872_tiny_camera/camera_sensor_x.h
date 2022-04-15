@@ -11,7 +11,8 @@ int getCameraStatus(void *arg);
 unsigned char getCameraFrameCount(void);
 
 //获取一张jpeg图像
-int getCameraSensorImg(unsigned char *buf,unsigned int maxLen);
+//int getCameraSensorImg(unsigned char *buf,unsigned int maxLen);
+int getCameraSensorImg(unsigned char *buf,unsigned int maxLen, void *private);
 //退出摄像头初始化
 void deinitCameraSensor(void);
 

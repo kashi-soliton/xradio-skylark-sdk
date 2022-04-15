@@ -10,6 +10,8 @@
 
 #include "camera_sensor_x.h"
 
+#include "mimamori.h"
+
 #define UNUSED(arg)  ((void)arg)
 
 struct query_t {
@@ -71,6 +73,7 @@ int dealHttpCmdCameraWorkEnv(const struct request_t * req);
 //#define HttpImgBufMaxLen			(100*1024)			
 unsigned char *httpImgBuf;
 unsigned int httpImgBufLen = 0;
+private_t *private;
 
 
 static int method_append(struct request_t * r, char c)
@@ -590,16 +593,17 @@ static int request_response(int sock, const struct request_t * req)
 	} else if(strcmp(req->url, "/img.jpg") == 0){
 		
 		
-		if(httpImgBuf!=NULL){
-			httpImgBufLen = getCameraSensorImg(httpImgBuf,HttpImgBufMaxLen);
+		if((httpImgBuf!=NULL)||(private!=NULL)){
+			httpImgBufLen = getCameraSensorImg(httpImgBuf,HttpImgBufMaxLen, private);
 			if(httpImgBufLen>0){
 				printf("get http img uri:%d\r\n",httpImgBufLen);
-				return send_img_file(sock, &httpImgBuf[4],httpImgBufLen);
+				//return send_img_file(sock, &httpImgBuf[4],httpImgBufLen);
+				return send_img_file(sock, httpImgBuf,httpImgBufLen);
 			}else{
 				printf("http get img error\r\n");
 			}
 		}else{
-			printf("http img buf error\r\n");
+			printf("http img buf or private_t error\r\n");
 		}
 		
 		length = strlen(RESPONSE);
@@ -625,6 +629,7 @@ static int request_response(int sock, const struct request_t * req)
 
 static void http_server_fun(void *arg)
 {
+	private_t *p = (private_t *)arg;
 	static struct server_t server;
 	const int reuse = 1;
 
@@ -658,6 +663,7 @@ static void http_server_fun(void *arg)
 
 	server.func_bad_request = request_bad;
 	server.func_request = request_response;
+	private = p;
 	
 	run_server(&server);
 	return ;
@@ -749,7 +755,7 @@ int dealHttpCmdCameraWorkEnv(const struct request_t * req){
 
 #define HTTP_SERVER_THREAD_STACK_SIZE    (1024 * 5)
 static OS_Thread_t http_server_task_thread;
-void initHttpServer(void)
+void initHttpServer(void *arg)
 {
 	//httpImgBuf = (uint8_t*)dma_malloc(HttpImgBufMaxLen, DMAHEAP_PSRAM);
 
@@ -760,7 +766,7 @@ void initHttpServer(void)
 	if (OS_ThreadCreate(&http_server_task_thread,
                         "http_server",
                         http_server_fun,
-                        NULL,
+                        arg,
                         OS_THREAD_PRIO_APP,
                         HTTP_SERVER_THREAD_STACK_SIZE) != OS_OK) {
         printf("http server thread create error\r\n");

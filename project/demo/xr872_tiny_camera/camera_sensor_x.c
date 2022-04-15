@@ -83,8 +83,6 @@ static uint8_t* gmpartaddr;
 static uint32_t gmpartsize;
 #endif
 
-static private_t *pv;
-
 volatile unsigned char camera_restart_flag = 0;
 
 void GC0308_SetLightMode(SENSOR_LightMode light_mode);
@@ -318,8 +316,8 @@ int camera_get_image(private_t *p)
 
 
 		/* jpeg data*/
-		jpeg_info.size += CAMERA_JPEG_HEADER_LEN;
-		addr = mem_mgmt.jpeg_buf[jpeg_info.buff_index].addr - CAMERA_JPEG_HEADER_LEN;
+		jpeg_info.size += CAMERA_JPEG_HEADER_LEN - 4;
+		addr = mem_mgmt.jpeg_buf[jpeg_info.buff_index].addr - CAMERA_JPEG_HEADER_LEN + 4;
 
 		if (jpeg_info.size <= JPEG_BUFF_SIZE) {
 			status = OS_MutexLock(&p->jpeg_mu, 5000);
@@ -329,7 +327,7 @@ int camera_get_image(private_t *p)
 			}
 			memcpy(p->jpeg_buf, addr, jpeg_info.size);
 			p->jpeg_len = jpeg_info.size;
-			if (p->jpeg_ready) printf("Thrown a picture!\n");
+			//if (p->jpeg_ready) printf("Thrown a picture!\n");
 			p->jpeg_ready = 1;
 			OS_MutexUnlock(&p->jpeg_mu);
 		} else {
@@ -371,7 +369,6 @@ unsigned char frameCount = 0;
 ///thread
 static void thread_camera_Fun(void *arg){
 	private_t *p = (private_t*) arg;
-	pv = p;
 	OS_Status ret;
 	int32_t do_capture = 0;
 	p->jpeg_buf = malloc(JPEG_BUFF_SIZE);
@@ -433,30 +430,31 @@ void initCameraSensor(void *arg)
 }
 
 //jpeg画像を取得します
-int getCameraSensorImg(unsigned char *buf,unsigned int maxLen)
+int getCameraSensorImg(unsigned char *buf,unsigned int maxLen, void *private)
 {
+	private_t *p = (private_t*) private;
 	unsigned int imgLen = 0;
 	OS_Status ret;
 	uint32_t ready = 0;
-	if (pv == NULL) {
-		printf("Failed: pv == NULL\n");
+	if (p == NULL) {
+		printf("Failed: p == NULL\n");
 		return -1;
 	}
 	uint32_t time = OS_TicksToMSecs(OS_GetTicks());
 	while (ready == 0) {
-		ret = OS_MutexLock(&pv->jpeg_mu, 5000);
+		ret = OS_MutexLock(&p->jpeg_mu, 5000);
 		if (ret != OS_OK) {
 			printf("Failed: OS_MutexLock\n");
 			OS_MSleep(1);
 			return -1;
 		}
-		ready = pv->jpeg_ready;
+		ready = p->jpeg_ready;
 		if (ready) {
-			memcpy(buf, pv->jpeg_buf, pv->jpeg_len);
-			pv->jpeg_ready = 0;
-			imgLen = pv->jpeg_len;
+			memcpy(buf, p->jpeg_buf, p->jpeg_len);
+			p->jpeg_ready = 0;
+			imgLen = p->jpeg_len;
 		}
-		OS_MutexUnlock(&pv->jpeg_mu);
+		OS_MutexUnlock(&p->jpeg_mu);
 		if (ready == 0) OS_MSleep(1);
 	}
 	uint32_t cost = OS_TicksToMSecs(OS_GetTicks()) - time;

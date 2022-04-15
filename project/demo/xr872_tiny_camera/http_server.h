@@ -4,7 +4,7 @@
 
 #define HttpImgBufMaxLen			(100*1024)	
 
-void initHttpServer(void);
+void initHttpServer(void *arg);
 
 #endif
 
