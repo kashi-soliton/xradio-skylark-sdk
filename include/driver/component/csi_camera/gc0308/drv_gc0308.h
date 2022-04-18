@@ -49,6 +49,8 @@ void HAL_GC0308_Suspend(void);
 void HAL_GC0308_Resume(void);
 HAL_Status HAL_GC0308_IoCtl(SENSOR_IoctrlCmd attr, uint32_t arg);
 
+int GC0308_ReadSccb(uint8_t sub_addr, uint8_t *data);
+
 #ifdef __cplusplus
 	 }
 #endif

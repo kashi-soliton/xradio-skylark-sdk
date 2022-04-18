@@ -366,6 +366,9 @@ static void thread_camera_Fun(void *arg){
 	int32_t do_capture = 0;
 	init_q();
 	camera_init();
+	uint8_t val;
+	GC0308_ReadSccb(0x14, &val);
+	printf("0x14=0x%x\n", val);
 	while(1){
 		if(camera_restart_flag!=0){
 			printf("thread_camera_Fun restart camera now width:%d  height:%d quality:%d\r\n",camera_cfg.jpeg_cfg.width, camera_cfg.jpeg_cfg.height, camera_cfg.jpeg_cfg.quality );
