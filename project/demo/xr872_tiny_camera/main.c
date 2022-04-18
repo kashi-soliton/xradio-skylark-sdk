@@ -17,6 +17,8 @@
 
 #include "mimamori.h"
 
+uint8_t *jpeg_buf;
+
 //char *ssid = "SmartHome-Next";
 //char *pwd = "1234qq1234";
 char *ssid = "S15303 2947";
@@ -82,15 +84,11 @@ int main(void)
 	platform_init();		
 
 	printf("XR872 init\r\n");
+	jpeg_buf = malloc_jpeg();
 	memset(&private, 0, sizeof(private));
 	ret = OS_MutexCreate(&private.mu);
 	if (ret != OS_OK) {
 		printf("Failed: OS_MutexCreate mu\n");
-		return (1);
-	}
-	ret = OS_MutexCreate(&private.jpeg_mu);
-	if (ret != OS_OK) {
-		printf("Failed: OS_MutexCreate jpeg_mu\n");
 		return (1);
 	}
 	connectByConfig();
@@ -137,6 +135,8 @@ int main(void)
 		printf("Failed: OS_TimerStart\n");
 	}
 #endif
+
+	free_jpeg(jpeg_buf);
 
 	return 0;
 

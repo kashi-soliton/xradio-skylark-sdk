@@ -34,12 +34,7 @@
 #define JPEG_ONLINE_EN			(1)
 #define JPEG_SRAM_SIZE 			(180*1024)
 
-#define JPEG_MPART_EN			(0)
-#if JPEG_MPART_EN
-#define JPEG_BUFF_SIZE 			(8*1024)
-#else
 #define JPEG_BUFF_SIZE  		(50*1024)
-#endif
 
 #define JPEG_IMAGE_WIDTH		(640)
 #define JPEG_IMAGE_HEIGHT		(480)
@@ -48,13 +43,27 @@
 #define SENSOR_FUNC_DEINIT	HAL_GC0308_DeInit
 #define SENSOR_FUNC_IOCTL	HAL_GC0308_IoCtl
 
+typedef struct jpeg_item {
+        uint8_t *buf;
+        int32_t size;
+} jpeg_item_t;
+#define JPEG_Q_SIZE 3
+struct jpeg_q_t {
+	jpeg_item_t d[JPEG_Q_SIZE];
+	int32_t w_idx;
+	int32_t r_idx;
+	int32_t count;
+        OS_Mutex_t mu;
+};
+struct jpeg_q_t jpeg_q;
+
 static CAMERA_Cfg camera_cfg = {
 	/* jpeg config */
 	.jpeg_cfg.jpeg_en = 1,
 	.jpeg_cfg.quality = 60,
 	.jpeg_cfg.jpeg_clk  = 0, //no use
-	.jpeg_cfg.memPartEn = JPEG_MPART_EN,
-	.jpeg_cfg.memPartNum = JPEG_MPART_EN ? JPEG_MEM_BLOCK4 : 0,
+	.jpeg_cfg.memPartEn = 0,
+	.jpeg_cfg.memPartNum = 0,
 	.jpeg_cfg.jpeg_mode = JPEG_ONLINE_EN ? JPEG_MOD_ONLINE : JPEG_MOD_OFFLINE,
 	.jpeg_cfg.width = JPEG_IMAGE_WIDTH,
 	.jpeg_cfg.height = JPEG_IMAGE_HEIGHT,
@@ -78,11 +87,6 @@ static uint8_t* gmemaddr;
 static CAMERA_Mgmt mem_mgmt;
 static OS_Semaphore_t sem;
 
-#if JPEG_MPART_EN
-static uint8_t* gmpartaddr;
-static uint32_t gmpartsize;
-#endif
-
 volatile unsigned char camera_restart_flag = 0;
 
 void GC0308_SetLightMode(SENSOR_LightMode light_mode);
@@ -90,6 +94,118 @@ void GC0308_SetColorSaturation(SENSOR_ColorSaturation sat);
 void GC0308_SetBrightness(SENSOR_Brightness bright);
 void GC0308_SetContrast(SENSOR_Contarst contrast);
 void GC0308_SetSpecialEffects(SENSOR_SpecailEffects eft);
+
+void *malloc_jpeg()
+{
+	void *ret;
+	ret = malloc(JPEG_BUFF_SIZE);
+	if (ret == NULL) {
+		printf("Failed to malloc jpeg buff.");
+		exit(EXIT_FAILURE);
+	}
+	return ret;
+}
+
+void free_jpeg(void *ptr)
+{
+	free(ptr);
+}
+
+static int init_q()
+{
+	int i;
+	OS_Status ret;
+	memset(&jpeg_q, 0, sizeof(jpeg_q));
+	for (i = 0; i < JPEG_Q_SIZE; i++) {
+		jpeg_q.d[i].buf = malloc(JPEG_BUFF_SIZE);
+		if (jpeg_q.d[i].buf == NULL) {
+			printf("malloc");
+			exit(EXIT_FAILURE);
+		}
+		memset(jpeg_q.d[i].buf, 0, JPEG_BUFF_SIZE);
+	}
+	ret = OS_MutexCreate(&jpeg_q.mu);
+        if (ret != OS_OK) {
+                printf("Failed: OS_MutexCreate jpeg_mu\n");
+                return 1;
+        }
+
+	return 0;
+}
+
+static int clean_q()
+{
+	int i;
+	OS_MutexDelete(&jpeg_q.mu);
+	for (i = 0; i < JPEG_Q_SIZE; i++) {
+		free(jpeg_q.d[i].buf);
+	}
+	memset(&jpeg_q, 0, sizeof(jpeg_q));
+	return 0;
+}
+
+static int push_q(uint8_t **addr, uint32_t size)
+{
+	int ret;
+	OS_Status status;
+	status = OS_MutexLock(&jpeg_q.mu, 5000);
+	if (status != OS_OK) {
+		printf("Failed: OS_MutexLock\n");
+		return -1;
+	}
+	memcpy(jpeg_q.d[jpeg_q.w_idx].buf, *addr, size);
+	jpeg_q.d[jpeg_q.w_idx].size = size;
+	jpeg_q.w_idx++;
+	jpeg_q.w_idx %= JPEG_Q_SIZE;
+	if (jpeg_q.count == JPEG_Q_SIZE) {
+		//printf("Thrown out\n");
+		jpeg_q.r_idx++;
+		jpeg_q.r_idx %= JPEG_Q_SIZE;
+	} else {
+		jpeg_q.count++;
+	}
+	ret = jpeg_q.count;
+	OS_MutexUnlock(&jpeg_q.mu);
+	return ret;
+}
+
+static int pop_q(uint8_t **addr, uint32_t *size)
+{
+	int ret = 0;
+	OS_Status status;
+	status = OS_MutexLock(&jpeg_q.mu, 5000);
+	if (status != OS_OK) {
+		printf("Failed: OS_MutexLock\n");
+		return -1;
+	}
+	if (jpeg_q.count == 0) {
+		//printf("No pic\n");
+		ret = -1;
+	} else {
+		*size = jpeg_q.d[jpeg_q.r_idx].size;
+		memcpy(*addr, jpeg_q.d[jpeg_q.r_idx].buf, *size);
+		jpeg_q.r_idx++;
+		jpeg_q.r_idx %= JPEG_Q_SIZE;
+		jpeg_q.count--;
+		ret = 0;
+	}
+	OS_MutexUnlock(&jpeg_q.mu);
+	return ret;
+}
+
+static int q_count()
+{
+	int ret;
+	OS_Status status;
+	status = OS_MutexLock(&jpeg_q.mu, 5000);
+	if (status != OS_OK) {
+		printf("Failed: OS_MutexLock\n");
+		return -1;
+	}
+	ret = jpeg_q.count;
+	OS_MutexUnlock(&jpeg_q.mu);
+	return ret;
+}
 
 static int camera_mem_create(CAMERA_JpegCfg *jpeg_cfg, CAMERA_Mgmt *mgmt)
 {
@@ -146,115 +262,6 @@ static void camera_mem_destroy()
 	}
 }
 
-#if JPEG_MPART_EN
-static void camera_cb(CAMERA_CapStatus status, void *arg)
-{
-	switch (status) {
-		case CAMERA_STATUS_MPART:
-		{
-			static uint32_t offset = 0;
-			uint8_t* addr = gmpartaddr;
-			CAMERA_MpartBuffInfo *stream = (CAMERA_MpartBuffInfo*)arg;
-
-			memcpy(addr+offset, mem_mgmt.jpeg_buf[stream->buff_index].addr+(uint32_t)stream->buff_offset, stream->size);
-			offset += stream->size;
-			if (stream->tail) { /* encode one jpeg finish */
-				gmpartsize = offset;
-				offset = 0;
-				OS_SemaphoreRelease(&sem);
-			}
-			break;
-		}
-		default:
-			break;
-	}
-}
-
-#if 0
-int camera_get_mpart_jpeg()
-{
-	int res = 0;
-	FIL fp;
-	uint32_t bw;
-	gmpartaddr = (uint8_t*)dma_malloc(45*1024, DMAHEAP_PSRAM);
-	if (gmpartaddr == NULL) {
-		printf("malloc fail\n");
-		return -1;
-	}
-
-	f_unlink("test.jpg");
-	res = f_open(&fp, "test.jpg", FA_WRITE | FA_CREATE_NEW);
-	if (res != FR_OK) {
-		printf("open file error %d\n", res);
-		res = -1;
-		goto exit_2;
-	}
-
-	res = f_write(&fp, mem_mgmt.jpeg_buf[0].addr-CAMERA_JPEG_HEADER_LEN, CAMERA_JPEG_HEADER_LEN, &bw);
-	if (res != FR_OK || bw < CAMERA_JPEG_HEADER_LEN) {
-		printf("write fail(%d), line%d..\n", res, __LINE__);
-		res = -1;
-		goto exit_1;
-	}
-
-	HAL_CAMERA_CaptureStream();
-
-	if (OS_SemaphoreWait(&sem, 5000) != OS_OK) {
-		printf("sem wait fail\n");
-		res = -1;
-		goto exit_1;
-	}
-
-	res = f_write(&fp, gmpartaddr, gmpartsize, &bw);
-	if (res != FR_OK || bw < gmpartsize) {
-		printf("write fail(%d), line%d..\n", res, __LINE__);
-		res = -1;
-		goto exit_1;
-	}
-    printf("write jpeg ok\n");
-exit_1:
-	f_close(&fp);
-exit_2:
-	dma_free(gmpartaddr, DMAHEAP_PSRAM);
-
-	return res;
-}
-#endif
-
-int camera_get_mpart_jpeg()
-{
-	int res = 0;
-
-	gmpartaddr = (uint8_t*)dma_malloc(45*1024, DMAHEAP_PSRAM);
-	if (gmpartaddr == NULL) {
-		printf("malloc fail\n");
-		return -1;
-	}
-	memset(gmpartaddr, 0 , 45*1024);
-
-	HAL_CAMERA_CaptureMpartStart(0);
-
-	if (OS_SemaphoreWait(&sem, 5000) != OS_OK) {
-		printf("sem wait fail\n");
-		dma_free(gmpartaddr, DMAHEAP_PSRAM);
-		return -1;
-	}
-
-	for (int i =0; i < (CAMERA_JPEG_HEADER_LEN); i++)
-		printf("%02x ", *(mem_mgmt.jpeg_buf[0].addr+i-CAMERA_JPEG_HEADER_LEN));
-	for (int i =0; i < (gmpartsize); i++)
-		printf("%02x ", *(gmpartaddr+i));
-	printf("\nprint jpeg ok\n");
-
-	OS_MSleep(300);
-
-	dma_free(gmpartaddr, DMAHEAP_PSRAM);
-
-	return res;
-}
-
-#endif
-
 static int camera_init()
 {
     if (OS_SemaphoreCreateBinary(&sem) != OS_OK) {
@@ -269,9 +276,6 @@ static int camera_init()
 
 	/* camera init */
 	camera_cfg.mgmt = &mem_mgmt;
-#if JPEG_MPART_EN
-	camera_cfg.cb = &camera_cb;
-#endif
 	if (HAL_CAMERA_Init(&camera_cfg) != HAL_OK) {
 		printf("%s fail, %d\n", __func__, __LINE__);
 		return -1;
@@ -282,12 +286,11 @@ static int camera_init()
 	return 0;
 }
 
-//static uint32_t max_cost = 0;
-//static uint32_t max_size = 0;
-int camera_get_image(private_t *p)
+//int camera_get_image(private_t *p)
+int camera_get_image()
 {
+	const uint16_t EOI = 0xd9ff;
 	uint8_t *addr = NULL;
-	OS_Status status;
 	CAMERA_JpegBuffInfo jpeg_info;
 	CAMERA_OutFmt fmt;
 	fmt = CAMERA_OUT_YUV420;
@@ -309,27 +312,17 @@ int camera_get_image(private_t *p)
 			printf("CAMERA_OUT_JPEG failed\r\n");
 			return -1;
 		}
-		//printf("Q:%d, jpeg image cost: %d ms, size: %d bytes\n", camera_cfg.jpeg_cfg.quality, cost, jpeg_info.size);
-		//if (jpeg_info.size > max_size) max_size = jpeg_info.size;
-
-		//printf("jpeg_info.buff_index: %d\n", jpeg_info.buff_index);
-
 
 		/* jpeg data*/
-		jpeg_info.size += CAMERA_JPEG_HEADER_LEN - 4;
-		addr = mem_mgmt.jpeg_buf[jpeg_info.buff_index].addr - CAMERA_JPEG_HEADER_LEN + 4;
+		jpeg_info.size += CAMERA_JPEG_HEADER_LEN;
+		addr = mem_mgmt.jpeg_buf[jpeg_info.buff_index].addr - CAMERA_JPEG_HEADER_LEN;
+		memcpy((addr + jpeg_info.size), &EOI, sizeof(EOI));
+		jpeg_info.size += sizeof(EOI);
+
+		//printf("Q:%d, jpeg image cost: %d ms, size: %d bytes\n", camera_cfg.jpeg_cfg.quality, cost, jpeg_info.size);
 
 		if (jpeg_info.size <= JPEG_BUFF_SIZE) {
-			status = OS_MutexLock(&p->jpeg_mu, 5000);
-			if (status != OS_OK) {
-				printf("Failed: OS_MutexLock\n");
-				return -1;
-			}
-			memcpy(p->jpeg_buf, addr, jpeg_info.size);
-			p->jpeg_len = jpeg_info.size;
-			//if (p->jpeg_ready) printf("Thrown a picture!\n");
-			p->jpeg_ready = 1;
-			OS_MutexUnlock(&p->jpeg_mu);
+			push_q(&addr, jpeg_info.size);
 		} else {
 			printf("JPEG_BUFF_SIZE small for img:%d : %d\r\n", jpeg_info.size, JPEG_BUFF_SIZE);
 			camera_cfg.jpeg_cfg.quality = 30; 
@@ -371,12 +364,7 @@ static void thread_camera_Fun(void *arg){
 	private_t *p = (private_t*) arg;
 	OS_Status ret;
 	int32_t do_capture = 0;
-	p->jpeg_buf = malloc(JPEG_BUFF_SIZE);
-	if (p->jpeg_buf == NULL) {
-		printf("malloc");
-		exit(EXIT_FAILURE);
-	}
-	memset(p->jpeg_buf, 0, JPEG_BUFF_SIZE);
+	init_q();
 	camera_init();
 	while(1){
 		if(camera_restart_flag!=0){
@@ -403,7 +391,6 @@ static void thread_camera_Fun(void *arg){
 		frameCount++;
 	}
 	
-	free(p->jpeg_buf);
 	camera_deinit();
 }
 
@@ -430,35 +417,18 @@ void initCameraSensor(void *arg)
 }
 
 //jpeg画像を取得します
-int getCameraSensorImg(unsigned char *buf,unsigned int maxLen, void *private)
+int getCameraSensorImg(unsigned char *buf)
 {
-	private_t *p = (private_t*) private;
+	//private_t *p = (private_t*) private;
 	unsigned int imgLen = 0;
-	OS_Status ret;
-	uint32_t ready = 0;
-	if (p == NULL) {
-		printf("Failed: p == NULL\n");
-		return -1;
-	}
-	uint32_t time = OS_TicksToMSecs(OS_GetTicks());
+	int32_t ready = 0;
+	//uint32_t time = OS_TicksToMSecs(OS_GetTicks());
 	while (ready == 0) {
-		ret = OS_MutexLock(&p->jpeg_mu, 5000);
-		if (ret != OS_OK) {
-			printf("Failed: OS_MutexLock\n");
-			OS_MSleep(1);
-			return -1;
-		}
-		ready = p->jpeg_ready;
-		if (ready) {
-			memcpy(buf, p->jpeg_buf, p->jpeg_len);
-			p->jpeg_ready = 0;
-			imgLen = p->jpeg_len;
-		}
-		OS_MutexUnlock(&p->jpeg_mu);
+		ready = pop_q(&buf, &imgLen) == 0? 1: 0;
 		if (ready == 0) OS_MSleep(1);
 	}
-	uint32_t cost = OS_TicksToMSecs(OS_GetTicks()) - time;
-	printf("getCameraSensorImg cost:%u\n", cost);
+	//uint32_t cost = OS_TicksToMSecs(OS_GetTicks()) - time;
+	//printf("getCameraSensorImg cost:%u\n", cost);
 	return imgLen;
 }
 //カメラの初期化を終了します

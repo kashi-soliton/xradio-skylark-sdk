@@ -15,17 +15,14 @@
 
 
 
-extern unsigned char *httpImgBuf;
-extern unsigned int httpImgBufLen;
 extern private_t *private;
 
 static void tcp_server_fun(void *arg)
 {
+	uint32_t httpImgBufLen = 0;
 	int sockfd, connfd, len, rc; 
     struct sockaddr_in servaddr, cli; 
 	
-    printf("private %p =? %p\n", private, arg);
-
 	// socket create and verification 
     sockfd = socket(AF_INET, SOCK_STREAM, 0); 
     if (sockfd == -1) { 
@@ -74,16 +71,12 @@ static void tcp_server_fun(void *arg)
 		for (;;) { 
 
 			//get camera data and send again
-			if((httpImgBuf!=NULL)||(private!=NULL)){
-				httpImgBufLen = getCameraSensorImg(httpImgBuf,HttpImgBufMaxLen,private);
+			if (jpeg_buf != NULL) {
+				httpImgBufLen = getCameraSensorImg(jpeg_buf);
 				if(httpImgBufLen>0){
 					int xlen,curPos;
 					printf("get tcp img len:%d\r\n",httpImgBufLen);
 					len = (httpImgBufLen+4);
-					for (int i = 0; i < 16; i++) {
-						printf("%02x", httpImgBuf[i]);
-					}
-					printf("\n");
 					curPos = 0;
 					for (;;) {
 						xlen = len-curPos;
@@ -94,7 +87,7 @@ static void tcp_server_fun(void *arg)
 							rc = 0;
 							break;
 						}
-						rc = write(connfd, &httpImgBuf[curPos], xlen);
+						rc = write(connfd, jpeg_buf, xlen);
 						if (rc < 0) {
 							break;
 						}

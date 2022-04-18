@@ -1,6 +1,9 @@
 #ifndef _camera_sensor_x_
 #define _camera_sensor_x_
 
+void *malloc_jpeg();
+void free_jpeg(void *ptr);
+
 
 //初始化摄像头
 void initCameraSensor(void *arg);
@@ -12,7 +15,7 @@ unsigned char getCameraFrameCount(void);
 
 //获取一张jpeg图像
 //int getCameraSensorImg(unsigned char *buf,unsigned int maxLen);
-int getCameraSensorImg(unsigned char *buf,unsigned int maxLen, void *private);
+int getCameraSensorImg(unsigned char *buf);
 //退出摄像头初始化
 void deinitCameraSensor(void);
 

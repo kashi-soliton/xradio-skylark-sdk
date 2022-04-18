@@ -70,9 +70,6 @@ int dealHttpCmdCameraSizeAndQuality(const struct request_t * req);
 int dealHttpCmdCameraWorkEnv(const struct request_t * req);
 
 
-//#define HttpImgBufMaxLen			(100*1024)			
-unsigned char *httpImgBuf;
-unsigned int httpImgBufLen = 0;
 private_t *private;
 
 
@@ -572,6 +569,7 @@ static int request_send_fail(int sock, const struct request_t * req)
 
 static int request_response(int sock, const struct request_t * req)
 {
+	unsigned int httpImgBufLen = 0;
 	static const char * RESPONSE =
 		"HTTP/1.1 200 OK\r\n"
 		"Content-Type: text/html\r\n"
@@ -593,12 +591,11 @@ static int request_response(int sock, const struct request_t * req)
 	} else if(strcmp(req->url, "/img.jpg") == 0){
 		
 		
-		if((httpImgBuf!=NULL)||(private!=NULL)){
-			httpImgBufLen = getCameraSensorImg(httpImgBuf,HttpImgBufMaxLen, private);
+		if (jpeg_buf != NULL) {
+			httpImgBufLen = getCameraSensorImg(jpeg_buf);
 			if(httpImgBufLen>0){
 				printf("get http img uri:%d\r\n",httpImgBufLen);
-				//return send_img_file(sock, &httpImgBuf[4],httpImgBufLen);
-				return send_img_file(sock, httpImgBuf,httpImgBufLen);
+				return send_img_file(sock, jpeg_buf,httpImgBufLen);
 			}else{
 				printf("http get img error\r\n");
 			}
@@ -757,12 +754,6 @@ int dealHttpCmdCameraWorkEnv(const struct request_t * req){
 static OS_Thread_t http_server_task_thread;
 void initHttpServer(void *arg)
 {
-	//httpImgBuf = (uint8_t*)dma_malloc(HttpImgBufMaxLen, DMAHEAP_PSRAM);
-
-	httpImgBuf = (uint8_t*)psram_malloc(HttpImgBufMaxLen);
-	if (httpImgBuf == NULL) {
-		printf("malloc httpImgBuf fail\r\n");
-	}
 	if (OS_ThreadCreate(&http_server_task_thread,
                         "http_server",
                         http_server_fun,
