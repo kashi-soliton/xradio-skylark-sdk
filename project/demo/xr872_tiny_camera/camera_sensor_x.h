@@ -3,6 +3,8 @@
 
 void *malloc_jpeg();
 void free_jpeg(void *ptr);
+int getImg(unsigned char *buf, unsigned int *len);
+int getImgNum();
 
 
 //初始化摄像头
@@ -15,7 +17,7 @@ unsigned char getCameraFrameCount(void);
 
 //获取一张jpeg图像
 //int getCameraSensorImg(unsigned char *buf,unsigned int maxLen);
-int getCameraSensorImg(unsigned char *buf);
+//int getCameraSensorImg(unsigned char *buf);
 //退出摄像头初始化
 void deinitCameraSensor(void);
 

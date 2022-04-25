@@ -51,6 +51,7 @@ struct client_t {
 	struct sockaddr_in addr;
 	socklen_t len;
 };
+static struct client_t client;
 
 static int str_append(char * s, size_t len, char c)
 {
@@ -71,7 +72,6 @@ int dealHttpCmdCameraWorkEnv(const struct request_t * req);
 
 
 private_t *private;
-
 
 static int method_append(struct request_t * r, char c)
 {
@@ -341,7 +341,7 @@ static void print_req(int rc, struct request_t * r)
 
 static int run_server(struct server_t * server)
 {
-	struct client_t client;
+	//struct client_t client;
 	struct request_t r;
 	int rc;
 
@@ -353,7 +353,7 @@ static int run_server(struct server_t * server)
 		if (client.sock < 0)
 			return -1;
 		rc = parse(client.sock, &r);
-		print_req(rc, &r);
+		//print_req(rc, &r);
 		if (rc == 0) {
 			if (server->func_request)
 				server->func_request(client.sock, &r);
@@ -508,32 +508,6 @@ static int send_header_mime(int sock, const char * mime)
 	return write(sock, res.head, len) == len ? 0 : -1;
 }
 
-static int request_send_file(int sock, const struct request_t * req, const char * filename)
-{
-	//int fd = 0;
-	//int rc;
-	//char buf[256];
-
-	UNUSED(req);
-	//这里返回需要的网页服务
-	/*
-	fd = open(filename, O_RDONLY);
-	if (fd < 0)
-		return -1;
-
-	if (send_header_mime(sock, "text/html") >= 0) {
-		for (;;) {
-			rc = read(fd, buf, sizeof(buf));
-			if (rc <= 0) break;
-			rc = write(sock, buf, rc);
-			if (rc < 0) break;
-		}
-	}
-	close(fd);
-	*/
-	return 0;
-}
-
 static int request_send_ok(int sock, const struct request_t * req)
 {
 	UNUSED(req);
@@ -569,7 +543,7 @@ static int request_send_fail(int sock, const struct request_t * req)
 
 static int request_response(int sock, const struct request_t * req)
 {
-	unsigned int httpImgBufLen = 0;
+	//unsigned int httpImgBufLen = 0;
 	static const char * RESPONSE =
 		"HTTP/1.1 200 OK\r\n"
 		"Content-Type: text/html\r\n"
@@ -583,21 +557,18 @@ static int request_response(int sock, const struct request_t * req)
 
 	UNUSED(req);
 
-	printf("get uri:%s  query:%d\r\n",req->url,req->nquery);
-	if (strcmp(req->url, "/") == 0) {
-	
-		return request_send_file(sock, req, "index.html");
-	
-	} else if(strcmp(req->url, "/img.jpg") == 0){
-		
-		
-		if (jpeg_buf != NULL) {
-			httpImgBufLen = getCameraSensorImg(jpeg_buf);
-			if(httpImgBufLen>0){
-				printf("get http img uri:%d\r\n",httpImgBufLen);
-				return send_img_file(sock, jpeg_buf,httpImgBufLen);
-			}else{
-				printf("http get img error\r\n");
+	//printf("get uri:%s  query:%d\r\n",req->url,req->nquery);
+	if(strcmp(req->url, "/img.jpg") == 0){
+		if (private->jpeg_buf != NULL) {
+			int rc = -1;
+			while (rc != 0) {
+				rc = getImg(private->jpeg_buf, &private->jpeg_size);
+				if(rc != 0){
+					printf("http getImg error\r\n");
+				}else{
+					printf("getImg len:%d\r\n", private->jpeg_size);
+					return send_img_file(sock, private->jpeg_buf, private->jpeg_size);
+				}
 			}
 		}else{
 			printf("http img buf or private_t error\r\n");
@@ -613,6 +584,12 @@ static int request_response(int sock, const struct request_t * req)
 	} else if(strcmp(req->url, "/cmd_env") == 0){
 		dealHttpCmdCameraWorkEnv(req);
 		//返回OK
+		return request_send_ok(sock,req);
+	} else if(strcmp(req->url, "/start") == 0){
+		printf("start reqest\n");
+		return request_send_ok(sock,req);
+	} else if(strcmp(req->url, "/stop") == 0){
+		printf("stop reqest\n");
 		return request_send_ok(sock,req);
 	}else {
 	
@@ -665,8 +642,6 @@ static void http_server_fun(void *arg)
 	run_server(&server);
 	return ;
 }
-
-
 
 //处理摄像头的尺寸和质量改变指令
 int dealHttpCmdCameraSizeAndQuality(const struct request_t * req){
@@ -755,13 +730,13 @@ static OS_Thread_t http_server_task_thread;
 void initHttpServer(void *arg)
 {
 	if (OS_ThreadCreate(&http_server_task_thread,
-                        "http_server",
-                        http_server_fun,
-                        arg,
-                        OS_THREAD_PRIO_APP,
-                        HTTP_SERVER_THREAD_STACK_SIZE) != OS_OK) {
-        printf("http server thread create error\r\n");
-    }
+				"http_server",
+				http_server_fun,
+				arg,
+				OS_THREAD_PRIO_APP,
+				HTTP_SERVER_THREAD_STACK_SIZE) != OS_OK) {
+		printf("http server thread create error\r\n");
+	}
 	printf("http server init ok\r\n");
 }
 

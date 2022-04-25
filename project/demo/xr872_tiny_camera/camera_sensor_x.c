@@ -85,7 +85,6 @@ static CAMERA_Cfg camera_cfg = {
 
 static uint8_t* gmemaddr;
 static CAMERA_Mgmt mem_mgmt;
-static OS_Semaphore_t sem;
 
 volatile unsigned char camera_restart_flag = 0;
 
@@ -229,7 +228,6 @@ static int camera_mem_create(CAMERA_JpegCfg *jpeg_cfg, CAMERA_Mgmt *mgmt)
 		memset(addr, 0 , JPEG_SRAM_SIZE);
 		end_addr = addr + JPEG_SRAM_SIZE;
 	}
-	printf("malloc addr: %p -> %p\n", addr, end_addr);
 
 	mgmt->yuv_buf.addr = (uint8_t *)ALIGN_16B((uint32_t)addr);
 	mgmt->yuv_buf.size = camera_cfg.jpeg_cfg.width*camera_cfg.jpeg_cfg.height*3/2;
@@ -264,11 +262,6 @@ static void camera_mem_destroy()
 
 static int camera_init()
 {
-    if (OS_SemaphoreCreateBinary(&sem) != OS_OK) {
-        printf("sem create fail\n");
-        return -1;
-    }
-
     /* malloc mem */
 	memset(&mem_mgmt, 0, sizeof(CAMERA_Mgmt));
 	if (camera_mem_create(&camera_cfg.jpeg_cfg, &mem_mgmt) != 0)
@@ -349,8 +342,6 @@ int getCameraStatus(void *arg)
 
 static void camera_deinit()
 {
-	OS_SemaphoreDelete(&sem);
-
 	HAL_CAMERA_DeInit();
 
 	camera_mem_destroy();
@@ -420,20 +411,30 @@ void initCameraSensor(void *arg)
 }
 
 //jpeg画像を取得します
-int getCameraSensorImg(unsigned char *buf)
+int getImg(uint8_t *buf, uint32_t *len)
 {
-	//private_t *p = (private_t*) private;
-	unsigned int imgLen = 0;
-	int32_t ready = 0;
-	//uint32_t time = OS_TicksToMSecs(OS_GetTicks());
-	while (ready == 0) {
-		ready = pop_q(&buf, &imgLen) == 0? 1: 0;
-		if (ready == 0) OS_MSleep(1);
-	}
-	//uint32_t cost = OS_TicksToMSecs(OS_GetTicks()) - time;
-	//printf("getCameraSensorImg cost:%u\n", cost);
-	return imgLen;
+	return pop_q(&buf, len);
 }
+
+int getImgNum()
+{
+	return q_count();
+}
+
+//int getCameraSensorImg(unsigned char *buf)
+//{
+	////private_t *p = (private_t*) private;
+	//unsigned int imgLen = 0;
+	//int32_t rc = -1;
+	////uint32_t time = OS_TicksToMSecs(OS_GetTicks());
+	//while (rc != 0) {
+		//rc = pop_q(&buf, &imgLen);
+		//if (rc != 0) OS_MSleep(1);
+	//}
+	////uint32_t cost = OS_TicksToMSecs(OS_GetTicks()) - time;
+	////printf("getCameraSensorImg cost:%u\n", cost);
+	//return imgLen;
+//}
 //カメラの初期化を終了します
 void deinitCameraSensor(void)
 {

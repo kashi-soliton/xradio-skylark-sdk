@@ -17,8 +17,6 @@
 
 #include "mimamori.h"
 
-uint8_t *jpeg_buf;
-
 //char *ssid = "SmartHome-Next";
 //char *pwd = "1234qq1234";
 char *ssid = "S15303 2947";
@@ -51,27 +49,64 @@ unsigned char startAP(void)
 	return 0;
 }
 
-//static int cc = 0;
 #define TIMER
 #ifdef TIMER
 OS_TimerCallback_t timercallback(void *arg)
 {
+	static int tc_count = 0;
+	static int trigger_count = 0;
+	static int next_tc = 0;
+	uint32_t *dms = NULL;
+	uint32_t capture = 0;
 	OS_Status ret;
 	private_t *p = (private_t*) arg;
+	
+	dms = &p->dms[trigger_count % p->dms_num];
+	if (next_tc == 0) next_tc = *dms;
+	if (tc_count >= next_tc) {
+		capture = 1;
+		next_tc = tc_count + *dms;
+		trigger_count++;
+		//printf("trigger:%d, tc_count:%d perod:%d\n", trigger_count, tc_count, *dms);
+	} else {
+		capture = 0;
+	}
+
 	ret = OS_MutexLock(&p->mu, 5000);
 	if (ret != OS_OK) {
 		printf("OS_MutexLock timeout\n");
+		return NULL;
 	}
-	p->do_capture = 1;
-	if (ret != OS_OK) {
-		printf("OS_MutexUnlock timeout\n");
-	}
+	p->do_capture = capture;
 	ret = OS_MutexUnlock(&p->mu);
-	//printf("cb: %d\n", p->count++);
-	p->count++;
+
+	tc_count++;
 	return NULL;
 }
 #endif
+
+int setfps(private_t *private, uint32_t fps)
+{
+	if (fps == 30) {
+		private->dms_num = 3;
+		private->dms[0] = 33;
+		private->dms[1] = 33;
+		private->dms[2] = 34;
+	} else if (fps == 15) {
+		private->dms_num = 3;
+		private->dms[0] = 66;
+		private->dms[1] = 67;
+		private->dms[2] = 67;
+	} else if (fps == 10) {
+		private->dms_num = 1;
+		private->dms[0] = 100;
+	} else {
+		printf("Unknown fps %d. Set to 10 fps.\n", fps);
+		private->dms_num = 1;
+		private->dms[0] = 100;
+	}
+	return 0;
+}
 
 int main(void)
 {
@@ -84,8 +119,9 @@ int main(void)
 	platform_init();		
 
 	printf("XR872 init\r\n");
-	jpeg_buf = malloc_jpeg();
 	memset(&private, 0, sizeof(private));
+	private.jpeg_buf = malloc_jpeg();
+	private.jpeg_size = 0;
 	ret = OS_MutexCreate(&private.mu);
 	if (ret != OS_OK) {
 		printf("Failed: OS_MutexCreate mu\n");
@@ -101,9 +137,10 @@ int main(void)
 	initTcpServer(&private);
 	
 #ifdef TIMER
+	setfps(&private, 15);
 	OS_TimerSetInvalid(&timer_id);
 	ret = OS_TimerCreate(&timer_id, OS_TIMER_PERIODIC,
-			(OS_TimerCallback_t) timercallback, &private, 100);
+			(OS_TimerCallback_t) timercallback, &private, 1);
 	if (ret != OS_OK) {
 		printf("Failed: OS_TimerCreate\n");
 	}
@@ -130,13 +167,17 @@ int main(void)
 
 #ifdef TIMER
 	ret = OS_TimerStop(&timer_id);
+	if (ret) {
+		printf("Failed: OS_TimerStop\n");
+	}
 	ret = OS_TimerDelete(&timer_id);
 	if (ret) {
-		printf("Failed: OS_TimerStart\n");
+		printf("Failed: OS_TimerStop\n");
 	}
 #endif
 
-	free_jpeg(jpeg_buf);
+	OS_MutexDelete(&private.mu);
+	free_jpeg(private.jpeg_buf);
 
 	return 0;
 
