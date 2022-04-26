@@ -10,9 +10,36 @@
 
 #include "camera_sensor_x.h"
 
-#include "mimamori.h"
-
 #define UNUSED(arg)  ((void)arg)
+
+static int get_send(int fd)
+{
+	uint8_t *jpeg_buf;
+	uint32_t jpeg_size;
+	int rc = 0;
+
+	jpeg_buf = malloc_jpeg();
+	jpeg_size = 0;
+
+	if (jpeg_buf != NULL) {
+		rc = -1;
+		while (rc != 0) {
+			rc = getImg(jpeg_buf, &jpeg_size);
+			if (rc == 0) break;
+			OS_MSleep(3);
+		}
+		if (jpeg_size > 0) {
+			rc = write(fd, jpeg_buf, jpeg_size);
+			if(rc<0){
+				printf("write connfd error.\n");
+			}
+		}else{
+			printf("tcp get img error\r\n");
+		}
+	}
+	free_jpeg(jpeg_buf);
+	return 0;
+}
 
 struct query_t {
 	char val[24];
@@ -70,8 +97,6 @@ int dealHttpCmdCameraSizeAndQuality(const struct request_t * req);
 //处理摄像头工作环境改变指令
 int dealHttpCmdCameraWorkEnv(const struct request_t * req);
 
-
-private_t *private;
 
 static int method_append(struct request_t * r, char c)
 {
@@ -559,23 +584,9 @@ static int request_response(int sock, const struct request_t * req)
 
 	//printf("get uri:%s  query:%d\r\n",req->url,req->nquery);
 	if(strcmp(req->url, "/img.jpg") == 0){
-		if (private->jpeg_buf != NULL) {
-			int rc = -1;
-			while (rc != 0) {
-				rc = getImg(private->jpeg_buf, &private->jpeg_size);
-				if(rc != 0){
-					printf("http getImg error\r\n");
-				}else{
-					printf("getImg len:%d\r\n", private->jpeg_size);
-					return send_img_file(sock, private->jpeg_buf, private->jpeg_size);
-				}
-			}
-		}else{
-			printf("http img buf or private_t error\r\n");
-		}
-		
-		length = strlen(RESPONSE);
-		return (write(sock, RESPONSE, length) == length) ? 0 : -1;		
+		return get_send(sock);
+		//length = strlen(RESPONSE);
+		//return (write(sock, RESPONSE, length) == length) ? 0 : -1;		
 	
 	} else if(strcmp(req->url, "/cmd_whq") == 0){
 		dealHttpCmdCameraSizeAndQuality(req);
@@ -603,7 +614,6 @@ static int request_response(int sock, const struct request_t * req)
 
 static void http_server_fun(void *arg)
 {
-	private_t *p = (private_t *)arg;
 	static struct server_t server;
 	const int reuse = 1;
 
@@ -637,7 +647,6 @@ static void http_server_fun(void *arg)
 
 	server.func_bad_request = request_bad;
 	server.func_request = request_response;
-	private = p;
 	
 	run_server(&server);
 	return ;
@@ -724,9 +733,62 @@ int dealHttpCmdCameraWorkEnv(const struct request_t * req){
 	return 0;
 }
 
+static void tcp_server_fun(void *arg)
+{
+	int sockfd, connfd, len; //, rc;
+	struct sockaddr_in servaddr, cli; 
 
+ 	// socket create and verification 
+	sockfd = socket(AF_INET, SOCK_STREAM, 0); 
+	if (sockfd == -1) { 
+		printf("socket creation failed...\r\n"); 
+		return ;
+	} 
+	else{
+		printf("Socket successfully created..\r\n"); 
+	}
+	
+	bzero(&servaddr, sizeof(servaddr)); 
+	
+	servaddr.sin_family = AF_INET; 
+	servaddr.sin_addr.s_addr = htonl(INADDR_ANY); 
+	servaddr.sin_port = htons(10101); 
+	
+	// Binding newly created socket to given IP and verification 
+	if ((bind(sockfd, (const struct sockaddr *)&servaddr, sizeof(servaddr))) != 0) { 
+		printf("socket bind failed...\r\n"); 
+		return ; 
+	}
+	else{
+		printf("Socket successfully binded..\r\n"); 
+	}
+	
+	// Now server is ready to listen and verification 
+	if ((listen(sockfd, 5)) != 0) { 
+		printf("Listen failed...\r\n"); 
+		return ; 
+	} else {
+		printf("Server listening..\r\n"); 
+	}
+	len = sizeof(cli); 
+	
+	while(1){
+		connfd = accept(sockfd, (struct sockaddr *)&cli, (unsigned int *)&len); 
+		if (connfd < 0) {
+			printf("server acccept failed...\r\n"); 
+			continue ;
+		}
+		//get camera data and send again
+		get_send(connfd);
+		shutdown(connfd, SHUT_RDWR);
+		close(connfd);
+		//printf("socket quit now\r\n");
+	}
+}
 #define HTTP_SERVER_THREAD_STACK_SIZE    (1024 * 5)
+#define TCP_SERVER_THREAD_STACK_SIZE    (1024 * 5)
 static OS_Thread_t http_server_task_thread;
+static OS_Thread_t tcp_server_task_thread;
 void initHttpServer(void *arg)
 {
 	if (OS_ThreadCreate(&http_server_task_thread,
@@ -738,10 +800,15 @@ void initHttpServer(void *arg)
 		printf("http server thread create error\r\n");
 	}
 	printf("http server init ok\r\n");
+	if (OS_ThreadCreate(&tcp_server_task_thread,
+                        "tcp_server",
+                        tcp_server_fun,
+                        arg,
+                        OS_THREAD_PRIO_APP,
+                        TCP_SERVER_THREAD_STACK_SIZE) != OS_OK) {
+		printf("tcp thread create error\r\n");
+		return ;
+	}
+	printf("tcp server init ok\r\n");
 }
-
-
-
-
-
 

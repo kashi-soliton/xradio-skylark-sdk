@@ -6,25 +6,13 @@ void free_jpeg(void *ptr);
 int getImg(unsigned char *buf, unsigned int *len);
 int getImgNum();
 
-
-//初始化摄像头
 void initCameraSensor(void *arg);
-
 //
 int getCameraStatus(void *arg);
-//
-unsigned char getCameraFrameCount(void);
-
-//获取一张jpeg图像
-//int getCameraSensorImg(unsigned char *buf,unsigned int maxLen);
-//int getCameraSensorImg(unsigned char *buf);
-//退出摄像头初始化
-void deinitCameraSensor(void);
+int capture_image();
 
 //更新当前摄像头参数，尺寸和图像质量等参数
 void restartCameraByParam(unsigned int width,unsigned int height,unsigned int quality);
-
-
 
 //设置灯光模式	0自动	1日照模式	2阴天模式	3办公室模式		4居家模式
 void cameraSetLightMode(unsigned char mode);

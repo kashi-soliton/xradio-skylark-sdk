@@ -15,8 +15,6 @@
 
 #include "driver/component/csi_camera/gc0308/drv_gc0308.h"
 
-#include "mimamori.h"
-
 #define JPEG_PSRAM_EN			(1)
 #if JPEG_PSRAM_EN
 #include "driver/chip/psram/psram.h"
@@ -93,6 +91,14 @@ void GC0308_SetColorSaturation(SENSOR_ColorSaturation sat);
 void GC0308_SetBrightness(SENSOR_Brightness bright);
 void GC0308_SetContrast(SENSOR_Contarst contrast);
 void GC0308_SetSpecialEffects(SENSOR_SpecailEffects eft);
+
+static OS_Semaphore_t sem;
+static OS_Timer_t timer_id;
+OS_TimerCallback_t timercallback(void *arg)
+{
+	OS_SemaphoreRelease(&sem);
+	return NULL;
+}
 
 void *malloc_jpeg()
 {
@@ -262,7 +268,7 @@ static void camera_mem_destroy()
 
 static int camera_init()
 {
-    /* malloc mem */
+	/* malloc mem */
 	memset(&mem_mgmt, 0, sizeof(CAMERA_Mgmt));
 	if (camera_mem_create(&camera_cfg.jpeg_cfg, &mem_mgmt) != 0)
 		return -1;
@@ -279,7 +285,6 @@ static int camera_init()
 	return 0;
 }
 
-//int camera_get_image(private_t *p)
 int camera_get_image()
 {
 	const uint16_t EOI = 0xd9ff;
@@ -288,16 +293,14 @@ int camera_get_image()
 	CAMERA_OutFmt fmt;
 	fmt = CAMERA_OUT_YUV420;
 
-	//これは元の画像を取得するためのものです
-	//uint32_t time = OS_TicksToMSecs(OS_GetTicks());
+#ifdef CHECK_COST
+	uint32_t time = OS_TicksToMSecs(OS_GetTicks());
+#endif
 	int ret = HAL_CAMERA_CaptureImage(fmt, &jpeg_info, 1);
-	//uint32_t cost = OS_TicksToMSecs(OS_GetTicks()) - time;
-
 	if (ret == -1) {
 		printf("capture image failed\r\n");
 		return -1;
 	}
-	//if (cost > max_cost) max_cost = cost;
 
 	if (camera_cfg.jpeg_cfg.jpeg_en) {
 		ret = HAL_CAMERA_CaptureImage(CAMERA_OUT_JPEG, &jpeg_info, 0);
@@ -305,6 +308,7 @@ int camera_get_image()
 			printf("CAMERA_OUT_JPEG failed\r\n");
 			return -1;
 		}
+		//uint32_t time = OS_TicksToMSecs(OS_GetTicks()); printf("cp: %06d\n", time);
 
 		/* jpeg data*/
 		jpeg_info.size += CAMERA_JPEG_HEADER_LEN;
@@ -322,23 +326,14 @@ int camera_get_image()
 			camera_restart_flag = 1;
 			return -1;
 		}
+#ifdef CHECK_COST
+		uint32_t cost = OS_TicksToMSecs(OS_GetTicks()) - time;
+		printf("t: %06d c: %03d\n", time, cost);
+#endif
 	}
 
 	return 0;
 }
-
-/*
-int getCameraStatus(void *arg)
-{
-	private_t *p = (private_t*) arg;
-	p->max_cost = max_cost;
-	max_cost = 0;
-	p->max_size = max_size;
-	max_size = 0;
-	p->quality = camera_cfg.jpeg_cfg.quality;
-	return 0;
-}
-*/
 
 static void camera_deinit()
 {
@@ -349,61 +344,72 @@ static void camera_deinit()
 
 
 
-unsigned char frameCount = 0;
 ///thread
 static void thread_camera_Fun(void *arg){
-	private_t *p = (private_t*) arg;
 	OS_Status ret;
-	int32_t do_capture = 0;
 	init_q();
 	camera_init();
-	uint8_t val;
-	GC0308_ReadSccb(0x14, &val);
-	printf("0x14=0x%x\n", val);
+	//uint8_t val;
+	//GC0308_ReadSccb(0x14, &val);
+	//printf("0x14=0x%x\n", val);
+	ret = OS_SemaphoreCreateBinary(&sem);
+	if (ret != OS_OK) {
+		printf("Failed: OS_SemaphoreCreateBinary\n");
+	}
+	OS_TimerSetInvalid(&timer_id);
+	ret = OS_TimerCreate(&timer_id, OS_TIMER_PERIODIC,
+			(OS_TimerCallback_t) timercallback, NULL, 100);
+	if (ret != OS_OK) {
+		printf("Failed: OS_TimerCreate\n");
+	}
+	ret = OS_TimerStart(&timer_id);
+	if (ret) {
+		printf("Failed: OS_TimerStart\n");
+	}
 	while(1){
 		if(camera_restart_flag!=0){
+			if (OS_TimerIsActive(&timer_id)) {
+				ret = OS_TimerStop(&timer_id);
+				if (ret) {
+					printf("Failed: OS_TimerStart\n");
+				}
+			}
 			printf("thread_camera_Fun restart camera now width:%d  height:%d quality:%d\r\n",camera_cfg.jpeg_cfg.width, camera_cfg.jpeg_cfg.height, camera_cfg.jpeg_cfg.quality );
 			camera_deinit();
 			OS_MSleep(100);
 			camera_init();
 			OS_MSleep(100);
 			camera_restart_flag = 0;
-		}
-		do {
-			ret = OS_MutexLock(&p->mu, 5000);
-			if (ret != OS_OK) {
-				printf("Failed: OS_MutexLock\n");
-				break;
+			ret = OS_TimerStart(&timer_id);
+			if (ret) {
+				printf("Failed: OS_TimerStart\n");
 			}
-			do_capture = p->do_capture;
-			p->do_capture = 0;
-			OS_MutexUnlock(&p->mu);
-			if (do_capture == 1) break;	// every 100 ms
-			OS_MSleep(1);
-		} while (1);
-		camera_get_image(p);
-		frameCount++;
+		}
+		ret = OS_SemaphoreWait(&sem, 500);
+		if (ret == OS_OK) camera_get_image();
 	}
 	
+	ret = OS_TimerStop(&timer_id);
+	if (ret) {
+		printf("Failed: OS_TimerStop\n");
+	}
+	ret = OS_TimerDelete(&timer_id);
+	if (ret) {
+		printf("Failed: OS_TimerDelete\n");
+	}
+	ret = OS_SemaphoreDelete(&sem);
+	if (ret != OS_OK) {
+		printf("Failed: OS_SemaphoreDelete\n");
+	}
 	camera_deinit();
 }
 
-unsigned char getCameraFrameCount(void)
-{
-	unsigned char x = 0;
-	x = frameCount;
-	frameCount = 0;
-	return x;
-}
-
-
 #define THREAD_CAMERA_STACK_SIZE	(1024 * 5)
 OS_Thread_t thread_camera;
-
 //カメラを初期化します
 void initCameraSensor(void *arg)
 {
-	if (OS_ThreadCreate(&thread_camera,"thread_camera",thread_camera_Fun,arg,OS_PRIORITY_NORMAL,THREAD_CAMERA_STACK_SIZE) != OS_OK) {			
+	if (OS_ThreadCreate(&thread_camera,"thread_camera",thread_camera_Fun,NULL,OS_PRIORITY_NORMAL,THREAD_CAMERA_STACK_SIZE) != OS_OK) {			
 		printf("thread camera create error\n");
 	}
 	
@@ -419,26 +425,6 @@ int getImg(uint8_t *buf, uint32_t *len)
 int getImgNum()
 {
 	return q_count();
-}
-
-//int getCameraSensorImg(unsigned char *buf)
-//{
-	////private_t *p = (private_t*) private;
-	//unsigned int imgLen = 0;
-	//int32_t rc = -1;
-	////uint32_t time = OS_TicksToMSecs(OS_GetTicks());
-	//while (rc != 0) {
-		//rc = pop_q(&buf, &imgLen);
-		//if (rc != 0) OS_MSleep(1);
-	//}
-	////uint32_t cost = OS_TicksToMSecs(OS_GetTicks()) - time;
-	////printf("getCameraSensorImg cost:%u\n", cost);
-	//return imgLen;
-//}
-//カメラの初期化を終了します
-void deinitCameraSensor(void)
-{
-	
 }
 
 void restartCameraByParam(unsigned int width,unsigned int height,unsigned int quality)
