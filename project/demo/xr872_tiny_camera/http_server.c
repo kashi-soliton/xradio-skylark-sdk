@@ -12,7 +12,9 @@
 
 #define UNUSED(arg)  ((void)arg)
 
-static int get_send(int fd)
+static int send_header_img(int sock,unsigned int imglen);
+
+static int get_send(int fd, int w_header)
 {
 	uint8_t *jpeg_buf;
 	uint32_t jpeg_size;
@@ -27,6 +29,9 @@ static int get_send(int fd)
 			rc = getImg(jpeg_buf, &jpeg_size);
 			if (rc == 0) break;
 			OS_MSleep(3);
+		}
+		if (w_header) {
+			send_header_img(fd, jpeg_size);
 		}
 		if (jpeg_size > 0) {
 			rc = write(fd, jpeg_buf, jpeg_size);
@@ -584,7 +589,7 @@ static int request_response(int sock, const struct request_t * req)
 
 	//printf("get uri:%s  query:%d\r\n",req->url,req->nquery);
 	if(strcmp(req->url, "/img.jpg") == 0){
-		return get_send(sock);
+		return get_send(sock, 1);
 		//length = strlen(RESPONSE);
 		//return (write(sock, RESPONSE, length) == length) ? 0 : -1;		
 	
@@ -779,7 +784,7 @@ static void tcp_server_fun(void *arg)
 			continue ;
 		}
 		//get camera data and send again
-		get_send(connfd);
+		get_send(connfd, 0);
 		shutdown(connfd, SHUT_RDWR);
 		close(connfd);
 		//printf("socket quit now\r\n");

@@ -1,6 +1,7 @@
 #include "common/framework/platform_init.h"
 #include <stdio.h>
 #include "kernel/os/os.h"
+#include "kernel/os/os_cpuusage.h"
 
 #include "pm/pm.h"
 #include "net/wlan/wlan.h"
@@ -50,7 +51,7 @@ int main(void)
 {
 	platform_init();		
 
-	printf("XR872 v1.0\r\n");
+	printf("XR872 v1.1\r\n");
 
 	connectByConfig();
 	//startAP();
@@ -60,6 +61,7 @@ int main(void)
 	initHttpServer(NULL);
 	
 	while (1) {	
+		//OS_ThreadList();
 		OS_Sleep(60);
 	}
 
