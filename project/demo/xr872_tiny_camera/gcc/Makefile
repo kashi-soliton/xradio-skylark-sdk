@@ -16,6 +16,10 @@ include $(ROOT_PATH)/gcc.mk
 
 # Special to use OS_timer
 CC_FLAGS += --specs=nosys.specs
+CC_FLAGS += -DconfigUSE_TRACE_FACILITY
+CC_FLAGS += -DMM_I2S_TEST_DATA
+CC_FLAGS += -Wno-error=unused-const-variable=pa_switch_ctl
+
 
 # ----------------------------------------------------------------------------
 # project name and project root path

@@ -92,6 +92,7 @@ static const struct cmd_data g_main_cmds[] = {
     { "i2s", 	cmd_i2s_exec},
     { "codec",	cmd_codec_exec},
     { "efpg",	cmd_efpg_exec},
+    { "thread",	cmd_thread_exec},
 #ifdef __CONFIG_PSRAM
     { "psram",	cmd_psram_exec},
 #endif

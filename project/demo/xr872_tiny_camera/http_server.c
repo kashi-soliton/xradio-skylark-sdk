@@ -9,8 +9,26 @@
 #include "driver/chip/psram/psram.h"
 
 #include "camera_sensor_x.h"
+#include "mm_i2s.h"
+
+#define UDP_H_RPORT	8080
+#define UDP_V_RPORT	10101
+#define UDP_A_RPORT	10103
+#define UDP_A_LPORT	53516
 
 #define UNUSED(arg)  ((void)arg)
+
+struct sockaddr_in al_addr;
+struct sockaddr_in ar_addr;
+
+static const uint8_t wave_hdr[] = {
+	0x52, 0x49, 0x46, 0x46, 0xff, 0xff, 0xff, 0xff,
+	0x57, 0x41, 0x56, 0x45, 0x66, 0x6d, 0x74, 0x20,
+	0x10, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00,
+	0x40, 0x1f, 0x00, 0x00, 0x80, 0x3e, 0x00, 0x00,
+	0x02, 0x00, 0x10, 0x00, 0x64, 0x61, 0x74, 0x61,
+	0xff, 0xff, 0xff, 0xff,
+};
 
 static int send_header_img(int sock,unsigned int imglen);
 
@@ -37,6 +55,7 @@ static int get_send(int fd, int w_header)
 			rc = write(fd, jpeg_buf, jpeg_size);
 			if(rc<0){
 				printf("write connfd error.\n");
+				return -1;
 			}
 		}else{
 			printf("tcp get img error\r\n");
@@ -738,10 +757,138 @@ int dealHttpCmdCameraWorkEnv(const struct request_t * req){
 	return 0;
 }
 
-static void tcp_server_fun(void *arg)
+static const char *mjpeg_s_hdr = 
+	"HTTP/1.0 OK\r\n"
+	"Server: MJPEGStreamer/1.0\r\n"
+	"Content-Type: multipart/x-mixed-replace;boundary=ImgBoundary\r\n"
+	"\r\n"
+	;
+static const char *mjpeg_bou =
+	"--ImgBoundary"
+	"\r\n"
+	;
+static const char *mjpeg_hdr =
+	"Mime-Type: image/jpeg\r\n"
+	"Content-Type: image/jpeg\r\n"
+	"Content-Length: %d\r\n"
+	"\r\n"
+	;
+static const char *mjpeg_crlf =
+	"\r\n"
+	;
+
+static int write_mjpeg_s_hdr(int fd)
 {
-	int sockfd, connfd, len; //, rc;
+	char buf[128] = {0};
+	int rc, len;
+	len = snprintf(buf, 128, "%s%s", mjpeg_s_hdr, mjpeg_bou);
+	rc = write(fd, buf, len);
+	if (rc != len) {
+		printf("%s: write error, %d != %d\n", __func__, rc, len);
+		return -1;
+	}
+	//printf("%s:%d\n", __func__, len);
+	return len;
+}
+
+static int write_mjpeg_tail(int fd)
+{
+	int rc, len;
+	char buf[64] = {0};
+	len = snprintf(buf, 64, "%s%s", mjpeg_crlf, mjpeg_bou);
+	rc = write(fd, buf, len);
+	if (rc != len) {
+		printf("%s: write error, %d != %d\n", __func__, rc, len);
+		return -1;
+	}
+	return len;
+}
+
+static int write_mjpeg_hdr(int fd, int size, int *total)
+{
+	char buf[128];
+	int rc;
+	int h_size = strlen(mjpeg_hdr);
+	*total = size + strlen(mjpeg_hdr) + strlen(mjpeg_crlf) + strlen(mjpeg_bou);
+	memset(buf, 0, 128);
+	snprintf(buf, 128, mjpeg_hdr, *total);
+	while (h_size != strlen(buf)) {
+		//printf("h_size: %d total: %d\n", h_size, *total);
+		h_size = strlen(buf);
+		*total = size + h_size + strlen(mjpeg_crlf) + strlen(mjpeg_bou);
+		memset(buf, 0, 128);
+		snprintf(buf, 128, mjpeg_hdr, *total);
+		//h_size = strlen(buf);
+		//*total = size + h_size + strlen(mjpeg_crlf) + strlen(mjpeg_bou);
+		//printf("h_size: %d total: %d\n", h_size, *total);
+	}
+	rc = write(fd, buf, h_size);
+	if (rc != h_size) {
+		printf("%s: write error, %d != %d\n", __func__, rc, h_size);
+		return -1;
+	}
+	return rc;
+}
+
+static int write_mjpeg(int fd, int *pkt_len)
+{
+	uint8_t *jpeg_buf;
+	uint32_t jpeg_size;
+	int sent = 0, rc = 0;
+
+	jpeg_buf = malloc_jpeg();
+	if (jpeg_buf == NULL) {
+		return -1;
+	}
+	jpeg_size = 0;
+
+	rc = -1;
+	while (rc != 0) {
+		rc = getImg(jpeg_buf, &jpeg_size);
+		if (rc == 0) break;
+		OS_MSleep(3);
+	}
+	if (jpeg_size <= 0) {
+		printf("tcp get img error\r\n");
+		sent = -1;
+		goto exit_0;
+	}
+	rc = write_mjpeg_hdr(fd, jpeg_size, pkt_len);
+	if (rc < 0) {
+		sent = rc;
+		goto exit_0;
+	}
+	sent += rc;
+	rc = write(fd, jpeg_buf, jpeg_size);
+	if (rc < 0) {
+		printf("write connfd error.\n");
+		sent = rc;
+		goto exit_0;
+	}
+	sent += rc;
+	rc = write_mjpeg_tail(fd);
+	if (rc < 0) {
+		sent = -1;
+		goto exit_0;
+	}
+	sent += rc;
+
+exit_0:
+
+	free_jpeg(jpeg_buf);
+	return sent;
+}
+
+static in_addr_t s_addr = 0;
+static void mjpeg_server_fun(void *arg)
+{
+	int sockfd, connfd, len, pkt_len, rc;
 	struct sockaddr_in servaddr, cli; 
+	char rbuf[256];
+	const char *GET = "GET";
+	int request_get = 0;
+	int request_end = 0;
+	int i;
 
  	// socket create and verification 
 	sockfd = socket(AF_INET, SOCK_STREAM, 0); 
@@ -778,22 +925,138 @@ static void tcp_server_fun(void *arg)
 	len = sizeof(cli); 
 	
 	while(1){
+		request_get = 0;
+		request_end = 0;
 		connfd = accept(sockfd, (struct sockaddr *)&cli, (unsigned int *)&len); 
 		if (connfd < 0) {
 			printf("server acccept failed...\r\n"); 
 			continue ;
 		}
-		//get camera data and send again
-		get_send(connfd, 0);
-		shutdown(connfd, SHUT_RDWR);
-		close(connfd);
-		//printf("socket quit now\r\n");
+		while (connfd >= 0) {
+			rc = read(connfd, rbuf, sizeof(rbuf));
+			if (rc <= 0) {
+				shutdown(connfd, SHUT_RDWR);
+				close(connfd);
+				connfd = -1;
+				s_addr = 0;
+				printf("break after read. rc=%d\n", rc);
+				break;
+			}
+			if (rc > strlen(GET)) {
+				if (strncmp(rbuf, GET, strlen(GET)) == 0) {
+					request_get = 1;
+				}
+			}
+			for (i = 0; i < rc; i++) {
+				if (rbuf[i] == '\r') {
+					if (request_end == 0) request_end = 1;
+					else if (request_end == 2) request_end = 3;
+					else request_end = 0;
+				} else if (rbuf[i] == '\n') {
+					if (request_end == 1) request_end = 2;
+					else if (request_end == 3) request_end = 4;
+					else request_end = 0;
+				} else {
+					request_end = 0;
+				}
+			}
+			//printf("rc=%d\tconnfd=%d\t%d\t%d\n", rc, connfd, request_end, request_get);
+			if (request_end == 4 && request_get == 1) {
+				rc = write_mjpeg_s_hdr(connfd);
+				if (rc <= 0) {
+					shutdown(connfd, SHUT_RDWR);
+					close(connfd);
+					connfd = -1;
+					s_addr = 0;
+					break;
+				}
+				s_addr = cli.sin_addr.s_addr;
+				ar_addr = cli;
+				while ((rc = write_mjpeg(connfd, &pkt_len)) > 0) //NULL;
+				{
+					NULL;
+				}
+				shutdown(connfd, SHUT_RDWR);
+				close(connfd);
+				connfd = -1;
+				s_addr = 0;
+				printf("break after jpeg send done\n");
+				break;
+			}
+		}
 	}
 }
-#define HTTP_SERVER_THREAD_STACK_SIZE    (1024 * 5)
-#define TCP_SERVER_THREAD_STACK_SIZE    (1024 * 5)
+
+static void audio_server_fun(void *arg)
+{
+	int sockfd = -1;
+	uint8_t *pos;
+	uint32_t size;
+	OS_Status ret;
+	ssize_t rc;
+	int flag = 0;
+
+	while (1) {
+		flag = s_addr == 0? 0: 1;
+		if ((sockfd != -1) && (flag == 0)) {
+			printf("%s: s_addr:%d, sockfd:%d\n", __func__, s_addr, sockfd);
+			if (sockfd != -1) {
+				i2s_stop(); printf("i2s_stop.\n");
+				close(sockfd);
+				sockfd = -1;
+			}
+		}
+		if ((sockfd == -1) && (flag != 0)) {
+			printf("s_addr:0x%08x(0x%08x)\n", s_addr, ntohl(s_addr));
+			al_addr.sin_family = AF_INET;
+			al_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+			al_addr.sin_port = htons(UDP_A_LPORT); 
+			ar_addr.sin_port = htons(UDP_A_RPORT);
+			sockfd = socket(AF_INET, SOCK_DGRAM, 0); 
+			if (sockfd < 0) { 
+				printf("socket creation failed...\r\n"); 
+				return ;
+			} 
+			else{
+				printf("Socket successfully created..\r\n"); 
+			}
+			if ((bind(sockfd, (const struct sockaddr *)&al_addr, sizeof(al_addr))) != 0) { 
+				printf("socket bind failed...\r\n"); 
+				return ; 
+			}
+			else{
+				printf("Socket successfully binded..\r\n"); 
+			}
+			i2s_start(); printf("i2s_start.\n");
+			i2s_clear_all_flags();
+			rc = sendto(sockfd, wave_hdr, sizeof(wave_hdr), 0,
+					(struct sockaddr *)&ar_addr,
+					sizeof(ar_addr));
+			if (rc != size) {
+				printf("%s: wite error. ret=%d\n", __func__, rc);
+			}
+		}
+		ret = OS_SemaphoreWait(i2s_get_sem(), 500);
+		if (ret == OS_OK && s_addr != 0) {
+			i2s_get_data(&pos, &size);
+			rc = sendto(sockfd, pos, size, 0,
+					(struct sockaddr *)&ar_addr,
+					sizeof(ar_addr));
+			if (rc != size) {
+				printf("%s: wite error. ret=%d\n", __func__, rc);
+			}
+		} else {
+			OS_MSleep(100);
+		}
+	}
+}
+
+#define HTTP_SERVER_THREAD_STACK_SIZE    (1024 * 2)
+#define MJPEG_SERVER_THREAD_STACK_SIZE    (1024 * 2)
+#define AUDIO_SERVER_THREAD_STACK_SIZE    (1024 * 2)
 static OS_Thread_t http_server_task_thread;
-static OS_Thread_t tcp_server_task_thread;
+static OS_Thread_t mjpeg_server_task_thread;
+static OS_Thread_t audio_server_task_thread;
 void initHttpServer(void *arg)
 {
 	if (OS_ThreadCreate(&http_server_task_thread,
@@ -805,15 +1068,25 @@ void initHttpServer(void *arg)
 		printf("http server thread create error\r\n");
 	}
 	printf("http server init ok\r\n");
-	if (OS_ThreadCreate(&tcp_server_task_thread,
-                        "tcp_server",
-                        tcp_server_fun,
-                        arg,
+	if (OS_ThreadCreate(&mjpeg_server_task_thread,
+                        "mjpeg_server",
+                        mjpeg_server_fun,
+			arg,
                         OS_THREAD_PRIO_APP,
-                        TCP_SERVER_THREAD_STACK_SIZE) != OS_OK) {
+                        MJPEG_SERVER_THREAD_STACK_SIZE) != OS_OK) {
 		printf("tcp thread create error\r\n");
 		return ;
 	}
 	printf("tcp server init ok\r\n");
+	if (OS_ThreadCreate(&audio_server_task_thread,
+                        "audio_server",
+                        audio_server_fun,
+			arg,
+                        OS_THREAD_PRIO_APP,
+                        AUDIO_SERVER_THREAD_STACK_SIZE) != OS_OK) {
+		printf("audio thread create error\r\n");
+		return ;
+	}
+	printf("audio server init ok\r\n");
 }
 

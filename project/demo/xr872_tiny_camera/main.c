@@ -14,6 +14,7 @@
 
 #include "camera_sensor_x.h"
 #include "http_server.h"
+#include "mm_i2s.h"
 
 //char *ssid = "SmartHome-Next";
 //char *pwd = "1234qq1234";
@@ -49,19 +50,21 @@ unsigned char startAP(void)
 
 int main(void)
 {
+	int stime = 3;
+	printf("\n\nMimamori v1.0\n\n");
 	platform_init();		
-
-	printf("XR872 v1.1\r\n");
+	printf("Sleep %d sec ...", stime); OS_Sleep(stime); printf(" done\n");
 
 	connectByConfig();
 	//startAP();
 	OS_Sleep(2);
+	mm_init_i2s(); printf("mm_init_i2s()\n");
+	OS_Sleep(2);
 	initCameraSensor(NULL);
 	OS_Sleep(2);
 	initHttpServer(NULL);
-	
+
 	while (1) {	
-		//OS_ThreadList();
 		OS_Sleep(60);
 	}
 

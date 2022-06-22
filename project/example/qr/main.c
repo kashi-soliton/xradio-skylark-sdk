@@ -51,12 +51,12 @@
 #define JPEG_ONLINE_EN			(0)
 
 #define JPEG_PSRAM_EN			(1)
-#define JPEG_PSRAM_SIZE			(200*1024)
+#define JPEG_PSRAM_SIZE			(100*1024)
 
-#define JPEG_BUFF_SIZE  		(50*1024)
+#define JPEG_BUFF_SIZE  		(30*1024)
 
-#define IMAGE_WIDTH				(320)
-#define IMAGE_HEIGHT			(240)
+#define IMAGE_WIDTH			(640)
+#define IMAGE_HEIGHT			(480)
 
 #if 1
 #define SENSOR_FUNC_INIT	HAL_GC0308_Init
@@ -70,7 +70,7 @@
 
 static CAMERA_Cfg camera_cfg = {
 	.jpeg_cfg.jpeg_en = 1,
-	.jpeg_cfg.quality = 64,
+	.jpeg_cfg.quality = 38, //64,
 	.jpeg_cfg.jpeg_clk  = 0, //no use
 	.jpeg_cfg.memPartEn = 0,
 	.jpeg_cfg.memPartNum = 0,
@@ -227,18 +227,19 @@ int qr_scan_test()
 {
 	camera_init();
 
-    void *qr = zbar_qr_create();
+	void *qr = NULL;
+    	qr = zbar_qr_create();
 	if (!qr) {
 		printf("zbar qr create fail\n");
 		return -1;
 	}
 
-    uint8_t *raw = mem_mgmt.yuv_buf.addr;
+    	uint8_t *raw = mem_mgmt.yuv_buf.addr;
 	uint32_t width = IMAGE_WIDTH, height = IMAGE_HEIGHT;
 	zbar_qr_set_data(qr, raw, width, height);
 
 	uint32_t n;
-	const char *result;
+	const char *result = NULL;
 
 	while (1) {
 		if (camera_get_image() == 0) {
@@ -251,7 +252,7 @@ int qr_scan_test()
 			printf("camera take photo fail\n");
 		}
 		//OS_MSleep(1000);
-		OS_MSleep(10);
+		OS_MSleep(100);
 	}
 
     /* clean up */
@@ -264,14 +265,18 @@ int qr_scan_test()
 
 int main(void)
 {
+	printf("v1.0\n");
 	platform_init();
 
-	if (fs_init() != 0)
-		return -1;
+	printf("PRJCONF_MSP_STACK_SIZE %u Bytes\n",
+                   PRJCONF_MSP_STACK_SIZE);
+
+	//if (fs_init() != 0)
+		//return -1;
 
 	qr_scan_test();
 
-	fs_deinit();
+	//fs_deinit();
 
 	return 0;
 }

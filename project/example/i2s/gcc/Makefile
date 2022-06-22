@@ -14,6 +14,10 @@ ROOT_PATH := ../../../..
 
 include $(ROOT_PATH)/gcc.mk
 
+CC_FLAGS += -Wno-error=unused-const-variable=pa_switch_ctl
+CC_FLAGS += -DconfigUSE_TRACE_FACILITY
+CC_FLAGS += -DMM_I2S_TEST_DATA
+
 # ----------------------------------------------------------------------------
 # project name and project root path
 # ----------------------------------------------------------------------------

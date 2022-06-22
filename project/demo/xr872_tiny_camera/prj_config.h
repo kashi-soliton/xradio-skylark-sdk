@@ -39,7 +39,7 @@ extern "C" {
  */
 
 /* stack size for IRQ service */
-#define PRJCONF_MSP_STACK_SIZE          (1 * 1024)
+#define PRJCONF_MSP_STACK_SIZE          (2 * 1024)
 
 /* main thread priority */
 #define PRJCONF_MAIN_THREAD_PRIO        OS_THREAD_PRIO_APP
@@ -100,6 +100,9 @@ extern "C" {
  * project hardware feature
  */
 
+/* I2S NULL sound card enable/disable */
+#define PRJCONF_I2S_NULL_SOUNDCARD_EN	1
+
 /* uart enable/disable */
 #define PRJCONF_UART_EN                 1
 
@@ -118,10 +121,10 @@ extern "C" {
 #define	PRJCONF_CSI_SDC_EN				1	
 
 /* Xradio internal codec sound card enable/disable */
-#define PRJCONF_INTERNAL_SOUNDCARD_EN	1
+#define PRJCONF_INTERNAL_SOUNDCARD_EN	0
 
 /* AC107 sound card enable/disable */
-#define PRJCONF_AC107_SOUNDCARD_EN		1
+#define PRJCONF_AC107_SOUNDCARD_EN		0
 
 /*
  * project service feature
