@@ -150,7 +150,7 @@ int mm_init_i2s(void)
 	OS_Status ret;
 	i2s_data_t *p = &i2s_data;
 	memset(p, 0, sizeof(i2s_data_t));
-	p->period = 16;
+	p->period = 8;
 	p->size = I2S_MM_CHANNEL_NUMS * (I2S_MM_RESOLUTION / 8) *
 	       (I2S_MM_SAMPLE_RATE / 1000 * p->period);
 	p->page_num = 4;

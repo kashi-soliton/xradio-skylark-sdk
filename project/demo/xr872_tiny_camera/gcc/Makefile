@@ -19,6 +19,7 @@ CC_FLAGS += --specs=nosys.specs
 CC_FLAGS += -DconfigUSE_TRACE_FACILITY
 CC_FLAGS += -DMM_I2S_TEST_DATA
 CC_FLAGS += -Wno-error=unused-const-variable=pa_switch_ctl
+###CC_FLAGS += -DCHECK_COST
 
 
 # ----------------------------------------------------------------------------

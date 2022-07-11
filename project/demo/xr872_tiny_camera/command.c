@@ -78,8 +78,10 @@ static const struct cmd_data g_main_cmds[] = {
 	{ "thread",	cmd_thread_exec },
 	{ "upgrade",cmd_upgrade_exec },
 	{ "reboot", cmd_reboot_exec },
-	{ "efpg",	cmd_efpg_exec },
-	{ "gpio",	cmd_gpio_exec },
+	//{ "efpg",	cmd_efpg_exec },
+	//{ "gpio",	cmd_gpio_exec },
+	{ "sysinfo",	cmd_sysinfo_exec },
+	//{ "hdcpd",	cmd_dhcpd_exec },
 };
 
 void main_cmd_exec(char *cmd)

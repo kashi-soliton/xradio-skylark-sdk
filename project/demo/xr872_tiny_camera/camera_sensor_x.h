@@ -11,6 +11,8 @@ void initCameraSensor(void *arg);
 int getCameraStatus(void *arg);
 int capture_image();
 
+int getCameraParam(unsigned int *width,unsigned int *height,unsigned int *quality);
+
 //更新当前摄像头参数，尺寸和图像质量等参数
 void restartCameraByParam(unsigned int width,unsigned int height,unsigned int quality);
 

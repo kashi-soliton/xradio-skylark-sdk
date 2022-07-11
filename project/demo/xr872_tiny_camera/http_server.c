@@ -4,21 +4,27 @@
 #include "common/framework/platform_init.h"
 #include "net/wlan/wlan.h"
 #include "common/framework/net_ctrl.h"
+#include "common/framework/sysinfo.h"
 #include "net/nopoll/nopoll.h"
 #include "lwip/sockets.h"
 #include "driver/chip/psram/psram.h"
+#include "driver/chip/hal_prcm.h"
+#include "driver/chip/hal_wdg.h"
 
 #include "camera_sensor_x.h"
 #include "mm_i2s.h"
+#include "mimamori.h"
+#include "net/ping/ping.h"
 
 #define UDP_H_RPORT	8080
 #define UDP_V_RPORT	10101
 #define UDP_A_RPORT	10103
-#define UDP_A_LPORT	53516
+#define UDP_M_RPORT	10105
+static char MSG[] = "mimamori";
+static char MSGAP[] = "mimamori_ap";
 
 #define UNUSED(arg)  ((void)arg)
 
-struct sockaddr_in al_addr;
 struct sockaddr_in ar_addr;
 
 static const uint8_t wave_hdr[] = {
@@ -31,6 +37,24 @@ static const uint8_t wave_hdr[] = {
 };
 
 static int send_header_img(int sock,unsigned int imglen);
+
+static void URL_dec(char *out, char* in,  int n)
+{
+	int i = 0, j = 0;
+	char* c = NULL, hex[3] = {0};
+	while (i < n) {
+		if (in[i] == '%') {
+			i++;
+			strncpy(hex, &in[i], 2);
+			out[j] = (uint8_t) (strtoul(hex, &c, 16) & 0xff);
+			i++;
+		} else {
+			out[j] = in[i];
+		}
+		i++;
+		j++;
+	}
+}
 
 static int get_send(int fd, int w_header)
 {
@@ -71,7 +95,7 @@ struct query_t {
 
 struct header_property_t {
 	char key[32];
-	char value[128];
+	char value[256];
 };
 
 struct request_t {
@@ -114,6 +138,8 @@ static int str_append(char * s, size_t len, char c)
 	return -1;
 }
 
+
+int dealHttpCmdSetSsid(const struct request_t * req);
 
 //处理摄像头的尺寸和质量改变指令
 int dealHttpCmdCameraSizeAndQuality(const struct request_t * req);
@@ -187,7 +213,7 @@ static int parse(int client_sock, struct request_t * r)
 	int state = 0; /* state machine */
 	int read_next = 1; /* indicator to read data */
 	char c = 0; /* current character */
-	char buffer[16]; /* receive buffer */
+	char buffer[128]; /* receive buffer */
 	int buffer_index = sizeof(buffer); /* index within the buffer */
 	int content_length = -1; /* used only in POST requests */
 	struct header_property_t prop; /* temporary space to hold header key/value properties*/
@@ -210,6 +236,7 @@ static int parse(int client_sock, struct request_t * r)
 				if (rc == 0)
 					return 0; /* no data read */
 				buffer_index = 0;
+				printf("Recv:%s\n", buffer);
 			}
 			c = buffer[buffer_index];
 			++buffer_index;
@@ -246,9 +273,11 @@ static int parse(int client_sock, struct request_t * r)
 			case 3: /* url */
 				if (isspace((int)c)) {
 					state = 5;
+					printf("url:%s\n", r->url);
 				} else if (c == '?') {
 					read_next = 1;
 					state = 4;
+					printf("url:%s\n", r->url);
 				} else {
 					if (url_append(r, c))
 						return -state;
@@ -319,8 +348,10 @@ static int parse(int client_sock, struct request_t * r)
 					state = 11;
 					read_next = 1;
 				} else {
-					if (append(prop.value, sizeof(prop.value)-1, c))
+					if (append(prop.value, sizeof(prop.value)-1, c)) {
+						printf("%c,prop.value:%s\n", c, prop.value);
 						return -state;
+					}
 					read_next = 1;
 				}
 				break;
@@ -402,7 +433,7 @@ static int run_server(struct server_t * server)
 		if (client.sock < 0)
 			return -1;
 		rc = parse(client.sock, &r);
-		//print_req(rc, &r);
+		print_req(rc, &r);
 		if (rc == 0) {
 			if (server->func_request)
 				server->func_request(client.sock, &r);
@@ -512,6 +543,7 @@ static int send_header_img(int sock,unsigned int imglen)
 	return write(sock, res.head, len) == len ? 0 : -1;
 }
 
+/*
 static int send_img_file(int sock,unsigned char *buf,unsigned int len)
 {
 	unsigned int xlen = 0;
@@ -540,7 +572,9 @@ static int send_img_file(int sock,unsigned char *buf,unsigned int len)
 	}
 	
 }
+*/
 
+/*
 static int send_header_mime(int sock, const char * mime)
 {
 	int len;
@@ -556,6 +590,7 @@ static int send_header_mime(int sock, const char * mime)
 	len = (int)strlen(res.head);
 	return write(sock, res.head, len) == len ? 0 : -1;
 }
+*/
 
 static int request_send_ok(int sock, const struct request_t * req)
 {
@@ -573,6 +608,7 @@ static int request_send_ok(int sock, const struct request_t * req)
 	return (write(sock, OK_RESPONSE, length) == length) ? 0 : -1;
 }
 
+/*
 static int request_send_fail(int sock, const struct request_t * req)
 {
 	UNUSED(req);
@@ -588,23 +624,36 @@ static int request_send_fail(int sock, const struct request_t * req)
 	length = strlen(FAIL_RESPONSE);
 	return (write(sock, FAIL_RESPONSE, length) == length) ? 0 : -1;
 }
+*/
 
 
 static int request_response(int sock, const struct request_t * req)
 {
 	//unsigned int httpImgBufLen = 0;
-	static const char * RESPONSE =
+	static const char * RES_TEMP =
 		"HTTP/1.1 200 OK\r\n"
 		"Content-Type: text/html\r\n"
 		"Pragma: no-cache\r\n"
 		"Cache-Control: no-cache\r\n"
 		"Connection: close\r\n"
 		"\r\n"
-		"<html><body>Welcome (default response)</body></html>\r\n";
+		"model: %s\r\n"
+		"verion: %s\r\n"
+		"width: %u\r\n"
+		"height: %u\r\n"
+		"quality: %u\r\n";
+
+		//"<html><body>Welcome (default response)</body></html>\r\n";
+	
+	static char RESPONSE[512] = {0};
 
 	int length = 0;
 
 	UNUSED(req);
+
+	uint32_t width, height, quality;
+	getCameraParam(&width, &height, &quality);
+	snprintf(RESPONSE, 512, RES_TEMP, mimamori.model, mimamori.version, width, height, quality);
 
 	//printf("get uri:%s  query:%d\r\n",req->url,req->nquery);
 	if(strcmp(req->url, "/img.jpg") == 0){
@@ -612,14 +661,25 @@ static int request_response(int sock, const struct request_t * req)
 		//length = strlen(RESPONSE);
 		//return (write(sock, RESPONSE, length) == length) ? 0 : -1;		
 	
-	} else if(strcmp(req->url, "/cmd_whq") == 0){
+	} else if(strcmp(req->url, "/restart") == 0){
+		HAL_PRCM_SetCPUABootFlag(PRCM_CPUA_BOOT_FROM_COLD_RESET);
+		HAL_WDG_Reboot();
+		return request_send_ok(sock,req);
+	} else if(strcmp(req->url, "/set_ssid") == 0){
+		dealHttpCmdSetSsid(req);
+		//返回OK
+		return request_send_ok(sock,req);
+	} else if(
+			(strcmp(req->url, "/set_whq") == 0) ||
+			(strcmp(req->url, "/cmd_whq") == 0)
+		 ){
 		dealHttpCmdCameraSizeAndQuality(req);
 		//返回OK
 		return request_send_ok(sock,req);
-	} else if(strcmp(req->url, "/cmd_env") == 0){
-		dealHttpCmdCameraWorkEnv(req);
-		//返回OK
-		return request_send_ok(sock,req);
+	//} else if(strcmp(req->url, "/cmd_env") == 0){
+		//dealHttpCmdCameraWorkEnv(req);
+		////返回OK
+		//return request_send_ok(sock,req);
 	} else if(strcmp(req->url, "/start") == 0){
 		printf("start reqest\n");
 		return request_send_ok(sock,req);
@@ -674,6 +734,40 @@ static void http_server_fun(void *arg)
 	
 	run_server(&server);
 	return ;
+}
+
+int dealHttpCmdSetSsid(const struct request_t * req){
+
+	struct sysinfo *si = sysinfo_get();
+	int i = 0;
+	char *tmp = NULL;
+	char ssid[32] = {0};
+	char psk[32] = {0};
+	for(i=0;i<req->nquery;i++){
+		tmp = strstr(req->query[i].val,"ssid");
+		if(tmp!=NULL){
+			tmp = tmp+5;
+			memset(ssid, 0, 32);
+			URL_dec(ssid, tmp, strlen(tmp));
+		}
+		tmp = strstr(req->query[i].val,"psk");
+		if(tmp!=NULL){
+			tmp = tmp+4;
+			memset(psk, 0, 32);
+			URL_dec(psk, tmp, strlen(tmp));
+		}
+	}
+	if ((strlen(ssid) > 0) && (strlen(psk) > 0)) {
+		uint8_t *pssid = si->wlan_sta_param.ssid;
+		uint8_t *ppsk = si->wlan_sta_param.psk;
+		memset(pssid, 0, SYSINFO_SSID_LEN_MAX);
+		memset(ppsk, 0, SYSINFO_PSK_LEN_MAX);
+		memcpy(pssid, ssid, strlen((char*)ssid));
+		memcpy(ppsk, psk, strlen((char*)psk));
+		sysinfo_save();
+		printf("new ssid: %s, psk: %s\n", pssid, ppsk);
+	}
+	return 0;
 }
 
 //处理摄像头的尺寸和质量改变指令
@@ -758,7 +852,7 @@ int dealHttpCmdCameraWorkEnv(const struct request_t * req){
 }
 
 static const char *mjpeg_s_hdr = 
-	"HTTP/1.0 OK\r\n"
+	"HTTP/1.1 OK\r\n"
 	"Server: MJPEGStreamer/1.0\r\n"
 	"Content-Type: multipart/x-mixed-replace;boundary=ImgBoundary\r\n"
 	"\r\n"
@@ -997,66 +1091,114 @@ static void audio_server_fun(void *arg)
 	int flag = 0;
 
 	while (1) {
-		flag = s_addr == 0? 0: 1;
-		if ((sockfd != -1) && (flag == 0)) {
-			printf("%s: s_addr:%d, sockfd:%d\n", __func__, s_addr, sockfd);
-			if (sockfd != -1) {
-				i2s_stop(); printf("i2s_stop.\n");
-				close(sockfd);
-				sockfd = -1;
+		//if (OS_SemaphoreIsValid(i2s_get_sem())) {
+			flag = s_addr == 0? 0: 1;
+			if ((sockfd != -1) && (flag == 0)) {
+				if (sockfd != -1) {
+					i2s_stop(); printf("i2s_stop.\n");
+					close(sockfd);
+					sockfd = -1;
+				}
 			}
-		}
-		if ((sockfd == -1) && (flag != 0)) {
-			printf("s_addr:0x%08x(0x%08x)\n", s_addr, ntohl(s_addr));
-			al_addr.sin_family = AF_INET;
-			al_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-			al_addr.sin_port = htons(UDP_A_LPORT); 
-			ar_addr.sin_port = htons(UDP_A_RPORT);
-			sockfd = socket(AF_INET, SOCK_DGRAM, 0); 
-			if (sockfd < 0) { 
-				printf("socket creation failed...\r\n"); 
-				return ;
-			} 
-			else{
-				printf("Socket successfully created..\r\n"); 
-			}
-			if ((bind(sockfd, (const struct sockaddr *)&al_addr, sizeof(al_addr))) != 0) { 
-				printf("socket bind failed...\r\n"); 
-				return ; 
-			}
-			else{
-				printf("Socket successfully binded..\r\n"); 
-			}
-			i2s_start(); printf("i2s_start.\n");
-			i2s_clear_all_flags();
-			rc = sendto(sockfd, wave_hdr, sizeof(wave_hdr), 0,
+			if ((sockfd == -1) && (flag != 0)) {
+				ar_addr.sin_port = htons(UDP_A_RPORT);
+				sockfd = socket(AF_INET, SOCK_DGRAM, 0); 
+				if (sockfd < 0) { 
+					printf("socket creation failed...\r\n"); 
+					//return ;
+				} else{
+					printf("Socket successfully created..\r\n"); 
+				}
+				i2s_start(); printf("i2s_start.\n");
+				i2s_clear_all_flags();
+				rc = sendto(sockfd, wave_hdr, sizeof(wave_hdr), 0,
 					(struct sockaddr *)&ar_addr,
 					sizeof(ar_addr));
-			if (rc != size) {
-				printf("%s: wite error. ret=%d\n", __func__, rc);
+				if (rc != size) {
+					printf("%s: wite error. ret=%d\n", __func__, rc);
+					//s_addr = 0;
+				}
 			}
-		}
-		ret = OS_SemaphoreWait(i2s_get_sem(), 500);
-		if (ret == OS_OK && s_addr != 0) {
-			i2s_get_data(&pos, &size);
-			rc = sendto(sockfd, pos, size, 0,
+			ret = OS_SemaphoreWait(i2s_get_sem(), 500);
+			if (ret == OS_OK && s_addr != 0) {
+				i2s_get_data(&pos, &size);
+				rc = sendto(sockfd, pos, size, 0,
 					(struct sockaddr *)&ar_addr,
 					sizeof(ar_addr));
-			if (rc != size) {
-				printf("%s: wite error. ret=%d\n", __func__, rc);
+				if (rc != size) {
+					printf("%s: wite error. ret=%d\n", __func__, rc);
+					//s_addr = 0;
+				}
+			} else {
+				OS_MSleep(100);
 			}
+		//} else {
+			//OS_Sleep(3);
+		//}
+	}
+}
+
+static int send_msg(uint32_t addr, char *msg)
+{
+	//ssize_t rc;
+	struct sockaddr_in mr_addr = {0};
+	int sockfd = socket(AF_INET, SOCK_DGRAM, 0); 
+	if (sockfd < 0) { 
+		printf("socket creation failed...\r\n"); 
+		return -1;
+	} else {
+		mr_addr.sin_addr.s_addr = addr;
+		mr_addr.sin_family = AF_INET;
+		mr_addr.sin_port = htons(UDP_M_RPORT);
+		//rc =
+		sendto(sockfd, msg, strlen(msg), 0,
+				(struct sockaddr *)&mr_addr,
+				sizeof(mr_addr));
+		//if (rc != strlen(msg)) {
+			//printf("%s: wite error. ret=%d\n", __func__, rc);
+		//}
+		close(sockfd);
+		return 0;
+	}
+}
+
+static void announce_fun(void *arg)
+{
+	struct netif *nif = NULL;
+	int num, ret;
+
+	while (1) {
+		nif = g_wlan_netif;
+		if ((nif == NULL) || (netif_is_link_up(nif) == 0)) {
+			OS_Sleep(1);
+			continue;
+		}
+		if (wlan_if_get_mode(nif) == 0) {
+			send_msg(nif->gw.addr, MSG);
 		} else {
-			OS_MSleep(100);
+			int i;
+			ip_addr_t sin_addr = nif->ip_addr;
+			ret = wlan_ap_sta_num(&num);
+			if ((ret == 0)&&(num > 0)) {
+				for (i = 100; i < 110; i++) {
+					sin_addr.addr = sin_addr.addr & 0x00ffffff;
+					sin_addr.addr += i << 24;
+					send_msg(sin_addr.addr, MSGAP);
+				}
+			}
 		}
+		OS_Sleep(1);
 	}
 }
 
 #define HTTP_SERVER_THREAD_STACK_SIZE    (1024 * 2)
 #define MJPEG_SERVER_THREAD_STACK_SIZE    (1024 * 2)
-#define AUDIO_SERVER_THREAD_STACK_SIZE    (1024 * 2)
+#define AUDIO_SERVER_THREAD_STACK_SIZE    (1024 * 1)
+#define ANNOUNCE_SERVER_THREAD_STACK_SIZE    (1024 * 1)
 static OS_Thread_t http_server_task_thread;
 static OS_Thread_t mjpeg_server_task_thread;
 static OS_Thread_t audio_server_task_thread;
+static OS_Thread_t announce_server_task_thread;
 void initHttpServer(void *arg)
 {
 	if (OS_ThreadCreate(&http_server_task_thread,
@@ -1088,5 +1230,15 @@ void initHttpServer(void *arg)
 		return ;
 	}
 	printf("audio server init ok\r\n");
+	if (OS_ThreadCreate(&announce_server_task_thread,
+                        "announce_server",
+                        announce_fun,
+			arg,
+                        OS_THREAD_PRIO_APP,
+                        ANNOUNCE_SERVER_THREAD_STACK_SIZE) != OS_OK) {
+		printf("announce thread create error\r\n");
+		return ;
+	}
+	printf("announce server init ok\r\n");
 }
 

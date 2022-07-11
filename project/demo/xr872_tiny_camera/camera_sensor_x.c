@@ -32,7 +32,7 @@
 #define JPEG_ONLINE_EN			(1)
 #define JPEG_SRAM_SIZE 			(180*1024)
 
-#define JPEG_BUFF_SIZE  		(50*1024)
+#define JPEG_BUFF_SIZE  		(40*1024)
 
 #define JPEG_IMAGE_WIDTH		(640)
 #define JPEG_IMAGE_HEIGHT		(480)
@@ -308,15 +308,12 @@ int camera_get_image()
 			printf("CAMERA_OUT_JPEG failed\r\n");
 			return -1;
 		}
-		//uint32_t time = OS_TicksToMSecs(OS_GetTicks()); printf("cp: %06d\n", time);
-
 		/* jpeg data*/
 		jpeg_info.size += CAMERA_JPEG_HEADER_LEN;
 		addr = mem_mgmt.jpeg_buf[jpeg_info.buff_index].addr - CAMERA_JPEG_HEADER_LEN;
 		memcpy((addr + jpeg_info.size), &EOI, sizeof(EOI));
 		jpeg_info.size += sizeof(EOI);
 
-		//printf("Q:%d, jpeg image cost: %d ms, size: %d bytes\n", camera_cfg.jpeg_cfg.quality, cost, jpeg_info.size);
 
 		if (jpeg_info.size <= JPEG_BUFF_SIZE) {
 			push_q(&addr, jpeg_info.size);
@@ -328,7 +325,8 @@ int camera_get_image()
 		}
 #ifdef CHECK_COST
 		uint32_t cost = OS_TicksToMSecs(OS_GetTicks()) - time;
-		printf("t: %06d c: %03d\n", time, cost);
+		printf("Jpeg time:%06d cost:%03d ms, quality:%d size:%d bytes\n", time, cost, camera_cfg.jpeg_cfg.quality, jpeg_info.size);
+		//printf("t: %06d c: %03d\n", time, cost);
 #endif
 	}
 
@@ -425,6 +423,14 @@ int getImg(uint8_t *buf, uint32_t *len)
 int getImgNum()
 {
 	return q_count();
+}
+
+int getCameraParam(unsigned int *width,unsigned int *height,unsigned int *quality)
+{
+	*quality = camera_cfg.jpeg_cfg.quality;
+	*width = camera_cfg.jpeg_cfg.width;
+	*height = camera_cfg.jpeg_cfg.height;
+	return 0;
 }
 
 void restartCameraByParam(unsigned int width,unsigned int height,unsigned int quality)
