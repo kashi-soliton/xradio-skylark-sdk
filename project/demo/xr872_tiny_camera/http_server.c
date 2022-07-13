@@ -764,6 +764,7 @@ int dealHttpCmdSetSsid(const struct request_t * req){
 		memset(ppsk, 0, SYSINFO_PSK_LEN_MAX);
 		memcpy(pssid, ssid, strlen((char*)ssid));
 		memcpy(ppsk, psk, strlen((char*)psk));
+		si->wlan_mode = WLAN_MODE_STA;
 		sysinfo_save();
 		printf("new ssid: %s, psk: %s\n", pssid, ppsk);
 	}
@@ -991,7 +992,7 @@ static void mjpeg_server_fun(void *arg)
 		return ;
 	} 
 	else{
-		printf("Socket successfully created..\r\n"); 
+		printf("%s: Socket successfully created..\r\n", __func__); 
 	}
 	
 	bzero(&servaddr, sizeof(servaddr)); 
@@ -1107,7 +1108,7 @@ static void audio_server_fun(void *arg)
 					printf("socket creation failed...\r\n"); 
 					//return ;
 				} else{
-					printf("Socket successfully created..\r\n"); 
+					printf("%s: Socket successfully created..\r\n", __func__); 
 				}
 				i2s_start(); printf("i2s_start.\n");
 				i2s_clear_all_flags();
@@ -1125,10 +1126,10 @@ static void audio_server_fun(void *arg)
 				rc = sendto(sockfd, pos, size, 0,
 					(struct sockaddr *)&ar_addr,
 					sizeof(ar_addr));
-				if (rc != size) {
-					printf("%s: wite error. ret=%d\n", __func__, rc);
+				//if (rc != size) {
+					//printf("%s: wite error. ret=%d\n", __func__, rc);
 					//s_addr = 0;
-				}
+				//}
 			} else {
 				OS_MSleep(100);
 			}
@@ -1140,7 +1141,6 @@ static void audio_server_fun(void *arg)
 
 static int send_msg(uint32_t addr, char *msg)
 {
-	//ssize_t rc;
 	struct sockaddr_in mr_addr = {0};
 	int sockfd = socket(AF_INET, SOCK_DGRAM, 0); 
 	if (sockfd < 0) { 
@@ -1150,24 +1150,44 @@ static int send_msg(uint32_t addr, char *msg)
 		mr_addr.sin_addr.s_addr = addr;
 		mr_addr.sin_family = AF_INET;
 		mr_addr.sin_port = htons(UDP_M_RPORT);
-		//rc =
 		sendto(sockfd, msg, strlen(msg), 0,
 				(struct sockaddr *)&mr_addr,
 				sizeof(mr_addr));
-		//if (rc != strlen(msg)) {
-			//printf("%s: wite error. ret=%d\n", __func__, rc);
-		//}
 		close(sockfd);
 		return 0;
 	}
 }
 
-static void announce_fun(void *arg)
+void mimamori_udpmsg()
 {
 	struct netif *nif = NULL;
 	int num, ret;
 
+	nif = g_wlan_netif;
+	if ((nif == NULL) || (netif_is_link_up(nif) == 0)) return;
+	if (wlan_if_get_mode(nif) == 0) {	// STA mode
+		send_msg(nif->gw.addr, MSG);
+	} else {				// AP mode
+		int i;
+		ip_addr_t sin_addr = nif->ip_addr;
+		ret = wlan_ap_sta_num(&num);
+		if ((ret == 0)&&(num > 0)) {
+			for (i = 100; i < 110; i++) {
+				sin_addr.addr = sin_addr.addr & 0x00ffffff;
+				sin_addr.addr += i << 24;
+				send_msg(sin_addr.addr, MSGAP);
+			}
+		}
+	}
+}
+
+static void announce_fun(void *arg)
+{
+	//struct netif *nif = NULL;
+	//int num, ret;
+
 	while (1) {
+		/*
 		nif = g_wlan_netif;
 		if ((nif == NULL) || (netif_is_link_up(nif) == 0)) {
 			OS_Sleep(1);
@@ -1187,6 +1207,8 @@ static void announce_fun(void *arg)
 				}
 			}
 		}
+		*/
+		mimamori_udpmsg();
 		OS_Sleep(1);
 	}
 }
@@ -1198,7 +1220,7 @@ static void announce_fun(void *arg)
 static OS_Thread_t http_server_task_thread;
 static OS_Thread_t mjpeg_server_task_thread;
 static OS_Thread_t audio_server_task_thread;
-static OS_Thread_t announce_server_task_thread;
+//static OS_Thread_t announce_server_task_thread;
 void initHttpServer(void *arg)
 {
 	if (OS_ThreadCreate(&http_server_task_thread,
@@ -1230,6 +1252,7 @@ void initHttpServer(void *arg)
 		return ;
 	}
 	printf("audio server init ok\r\n");
+	/*
 	if (OS_ThreadCreate(&announce_server_task_thread,
                         "announce_server",
                         announce_fun,
@@ -1240,5 +1263,6 @@ void initHttpServer(void *arg)
 		return ;
 	}
 	printf("announce server init ok\r\n");
+	*/
 }
 

@@ -5,6 +5,7 @@
 #define HttpImgBufMaxLen			(100*1024)	
 
 void initHttpServer(void *arg);
+void mimamori_udpmsg();
 
 #endif
 

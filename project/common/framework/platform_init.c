@@ -576,9 +576,12 @@ __weak void platform_init_level0(void)
 #if PRJCONF_NET_EN
 #ifdef __CONFIG_WLAN_AP
 __weak const wlan_ap_default_conf_t g_wlan_ap_default_conf = {
-	.ssid = "AP-XRADIO",
-	.ssid_len = 9,
-	.psk = "123456789",
+	//.ssid = "AP-XRADIO",
+	//.ssid_len = 9,
+	//.psk = "123456789",
+	.ssid = "MIMAMORI_AP",
+	.ssid_len = 11,
+	.psk = "1234567890",
 	.hw_mode = WLAN_AP_HW_MODE_IEEE80211G,
 	.ieee80211n = 0,
 	.key_mgmt = WPA_KEY_MGMT_PSK,
@@ -594,7 +597,8 @@ __weak const wlan_ap_default_conf_t g_wlan_ap_default_conf = {
 	.beacon_int = 100,
 	.dtim = 1,
 	.max_num_sta = 4,
-	.country = {'C', 'N', ' '},
+	//.country = {'C', 'N', ' '},
+	.country = {'J', 'P', ' '},
 };
 #endif
 #endif

@@ -9,7 +9,7 @@
 export __CONFIG_XIP := y
 
 # enable/disable OTA, default to n
-export __CONFIG_OTA := y
+export __CONFIG_OTA := n
 
 # enable/disable JPEG, default to n
 export __CONFIG_JPEG := y

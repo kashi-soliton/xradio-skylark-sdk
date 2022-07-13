@@ -402,7 +402,7 @@ static void thread_camera_Fun(void *arg){
 	camera_deinit();
 }
 
-#define THREAD_CAMERA_STACK_SIZE	(1024 * 5)
+#define THREAD_CAMERA_STACK_SIZE	(1024 * 2)
 OS_Thread_t thread_camera;
 //カメラを初期化します
 void initCameraSensor(void *arg)
