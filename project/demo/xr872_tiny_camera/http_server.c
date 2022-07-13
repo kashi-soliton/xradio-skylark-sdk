@@ -1092,50 +1092,42 @@ static void audio_server_fun(void *arg)
 	int flag = 0;
 
 	while (1) {
-		//if (OS_SemaphoreIsValid(i2s_get_sem())) {
-			flag = s_addr == 0? 0: 1;
-			if ((sockfd != -1) && (flag == 0)) {
-				if (sockfd != -1) {
-					i2s_stop(); printf("i2s_stop.\n");
-					close(sockfd);
-					sockfd = -1;
-				}
+		flag = s_addr == 0? 0: 1;
+		if ((sockfd != -1) && (flag == 0)) {
+			if (sockfd != -1) {
+				i2s_stop(); printf("i2s_stop.\n");
+				close(sockfd);
+				sockfd = -1;
 			}
-			if ((sockfd == -1) && (flag != 0)) {
-				ar_addr.sin_port = htons(UDP_A_RPORT);
-				sockfd = socket(AF_INET, SOCK_DGRAM, 0); 
-				if (sockfd < 0) { 
-					printf("socket creation failed...\r\n"); 
-					//return ;
-				} else{
-					printf("%s: Socket successfully created..\r\n", __func__); 
-				}
-				i2s_start(); printf("i2s_start.\n");
-				i2s_clear_all_flags();
-				rc = sendto(sockfd, wave_hdr, sizeof(wave_hdr), 0,
-					(struct sockaddr *)&ar_addr,
-					sizeof(ar_addr));
-				if (rc != size) {
-					printf("%s: wite error. ret=%d\n", __func__, rc);
-					//s_addr = 0;
-				}
+		}
+		if ((sockfd == -1) && (flag != 0)) {
+			ar_addr.sin_port = htons(UDP_A_RPORT);
+			sockfd = socket(AF_INET, SOCK_DGRAM, 0); 
+			if (sockfd < 0) { 
+				printf("socket creation failed...\r\n"); 
+				//return ;
+			} else{
+				printf("%s: Socket successfully created..\r\n", __func__); 
 			}
-			ret = OS_SemaphoreWait(i2s_get_sem(), 500);
-			if (ret == OS_OK && s_addr != 0) {
-				i2s_get_data(&pos, &size);
-				rc = sendto(sockfd, pos, size, 0,
-					(struct sockaddr *)&ar_addr,
-					sizeof(ar_addr));
-				//if (rc != size) {
-					//printf("%s: wite error. ret=%d\n", __func__, rc);
-					//s_addr = 0;
-				//}
-			} else {
-				OS_MSleep(100);
+			i2s_start(); printf("i2s_start.\n");
+			i2s_clear_all_flags();
+			rc = sendto(sockfd, wave_hdr, sizeof(wave_hdr), 0,
+				(struct sockaddr *)&ar_addr,
+				sizeof(ar_addr));
+			if (rc != size) {
+				printf("%s: wite error. ret=%d\n", __func__, rc);
+				//s_addr = 0;
 			}
-		//} else {
-			//OS_Sleep(3);
-		//}
+		}
+		ret = OS_SemaphoreWait(i2s_get_sem(), 500);
+		if (ret == OS_OK && s_addr != 0) {
+			i2s_get_data(&pos, &size);
+			rc = sendto(sockfd, pos, size, 0,
+				(struct sockaddr *)&ar_addr,
+				sizeof(ar_addr));
+		} else {
+			OS_MSleep(100);
+		}
 	}
 }
 
@@ -1183,31 +1175,7 @@ void mimamori_udpmsg()
 
 static void announce_fun(void *arg)
 {
-	//struct netif *nif = NULL;
-	//int num, ret;
-
 	while (1) {
-		/*
-		nif = g_wlan_netif;
-		if ((nif == NULL) || (netif_is_link_up(nif) == 0)) {
-			OS_Sleep(1);
-			continue;
-		}
-		if (wlan_if_get_mode(nif) == 0) {
-			send_msg(nif->gw.addr, MSG);
-		} else {
-			int i;
-			ip_addr_t sin_addr = nif->ip_addr;
-			ret = wlan_ap_sta_num(&num);
-			if ((ret == 0)&&(num > 0)) {
-				for (i = 100; i < 110; i++) {
-					sin_addr.addr = sin_addr.addr & 0x00ffffff;
-					sin_addr.addr += i << 24;
-					send_msg(sin_addr.addr, MSGAP);
-				}
-			}
-		}
-		*/
 		mimamori_udpmsg();
 		OS_Sleep(1);
 	}

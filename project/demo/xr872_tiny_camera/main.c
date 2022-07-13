@@ -33,8 +33,8 @@ int main(void)
 	mimamori.model = model;
 	mimamori.version = version;
 
-	int stime = 3;
-	printf("\n\nMimamori v1.2\n\n");
+	OS_Sleep(1);
+	printf("\n\nMimamori v1.3\n\n");
 	platform_init();		
 	si = sysinfo_get();
 	if (si == NULL) {
@@ -51,21 +51,13 @@ int main(void)
 			printf("previous ssid: %s\n", ssid);
 			wlan_sta_set((uint8_t *)ssid, strlen(ssid), (uint8_t *)psk);
 			wlan_sta_enable();
-			/*
-		} else {
-			si->wlan_mode = WLAN_MODE_HOSTAP;
-			sysinfo_save();
-			OS_Sleep(1);
-			cmd_reboot_exec(NULL);
-			*/
 		}
 	} else {
 		si->wlan_mode = WLAN_MODE_STA;
 		sysinfo_save();
 	}
 
-	printf("\nSleep %d sec ...", stime); OS_Sleep(stime); printf(" done\n\n");
-
+	OS_Sleep(3);
 	initCameraSensor(NULL);
 	OS_Sleep(3);
 	mm_init_i2s(); printf("mm_init_i2s()\n");
@@ -79,24 +71,25 @@ int main(void)
 	while (1) {	
 		wlan_mode = wlan_if_get_mode(nif);
 		link_up = netif_is_link_up(nif);
+		ap_sta_ret = wlan_ap_sta_num(&ap_sta_num);
 		/*
 		printf("mode:%d->%d link_up:%d ret:%d num:%d\n",
 				wlan_mode,
 				si->wlan_mode, link_up,
 				ap_sta_ret, ap_sta_num);
-				*/
-		if ((wlan_mode == WLAN_MODE_STA && link_up) ||
-				(ap_sta_ret == 0 && ap_sta_num != 0)) {
+		*/
+		if (((wlan_mode == WLAN_MODE_STA) && link_up) ||
+				((ap_sta_ret == 0) && (ap_sta_num != 0))) {
 			down_ctr = 0;
 		} else {
 			down_ctr++;
 		}
-		if (down_ctr > 20) {
+		if (down_ctr > 30) {
 			if (wlan_mode == WLAN_MODE_STA) {
 				wlan_sta_disable();
 				net_switch_mode(WLAN_MODE_HOSTAP);
 				wlan_ap_enable();
-				down_ctr = -10;
+				down_ctr = 0;
 			} else {
 				OS_Sleep(1);
 				cmd_reboot_exec(NULL);
