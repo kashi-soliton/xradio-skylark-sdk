@@ -38,26 +38,12 @@
 #include "mm_i2s.h"
 
 
-
 //I2S mimamori config
-#define I2S_MM_SND_CARD		SND_CARD_0
-#define I2S_MM_LOOP_BACK_EN	1
+#define I2S_SND_CARD		AUDIO_SND_CARD_DEFAULT
 
-#define I2S_MM_SAMPLE_RATE	8000	//[8000,16000,32000, 12000,24000,48000, 11025,22050,44100]
-#define I2S_MM_CHANNEL_NUMS	1		//[1,2]
-#define I2S_MM_RESOLUTION		16		//[8,12,16,20,24,28,32]
-
-
-uint16_t tx_data_16bit[64] = { // 1kHz sine
-	0x0000, 0x0b50, 0x7fff, 0x0b50, 0x0000, 0xf4b0, 0xf001, 0xf4b0,
-	0x0000, 0x0b50, 0x7fff, 0x0b50, 0x0000, 0xf4b0, 0xf001, 0xf4b0,
-	0x0000, 0x0b50, 0x7fff, 0x0b50, 0x0000, 0xf4b0, 0xf001, 0xf4b0,
-	0x0000, 0x0b50, 0x7fff, 0x0b50, 0x0000, 0xf4b0, 0xf001, 0xf4b0,
-	0x0000, 0x0b50, 0x7fff, 0x0b50, 0x0000, 0xf4b0, 0xf001, 0xf4b0,
-	0x0000, 0x0b50, 0x7fff, 0x0b50, 0x0000, 0xf4b0, 0xf001, 0xf4b0,
-	0x0000, 0x0b50, 0x7fff, 0x0b50, 0x0000, 0xf4b0, 0xf001, 0xf4b0,
-	0x0000, 0x0b50, 0x7fff, 0x0b50, 0x0000, 0xf4b0, 0xf001, 0xf4b0,
-};
+#define I2S_SAMPLE_RATE		8000	//[8000,16000,32000, 12000,24000,48000, 11025,22050,44100]
+#define I2S_CHANNEL_NUMS	1
+#define I2S_RESOLUTION		16		//[8,12,16,20,24,28,32]
 
 #define THREAD_I2S_STACK_SIZE	(1024 * 1)
 
@@ -70,11 +56,7 @@ OS_TimerCallback_t mm_i2s_callback(void *arg)
 
 static i2s_data_t i2s_data;
 
-static int mm_i2s_open(uint8_t direction, uint32_t samplerate, uint8_t channels, uint8_t resolution);
-static int mm_i2s_close(uint8_t direction);
-static int mm_i2s_write(uint8_t *buffer, uint32_t size);
 static void thread_i2s(void *arg);
-
 int i2s_start(void)
 {
 	i2s_data.i2s_read = 1;
@@ -148,11 +130,13 @@ int i2s_clear_all_flags()
 int mm_init_i2s(void)
 {
 	OS_Status ret;
+	struct pcm_config pcm_cfg;
 	i2s_data_t *p = &i2s_data;
+
 	memset(p, 0, sizeof(i2s_data_t));
-	p->period = 8;
-	p->size = I2S_MM_CHANNEL_NUMS * (I2S_MM_RESOLUTION / 8) *
-	       (I2S_MM_SAMPLE_RATE / 1000 * p->period);
+	p->period = 4;
+	p->size = I2S_CHANNEL_NUMS * (I2S_RESOLUTION / 8) *
+	       (I2S_SAMPLE_RATE / 1000 * p->period);
 	p->page_num = 4;
 	p->buf = malloc(p->size * p->page_num);
 	if (p->buf == NULL) {
@@ -191,11 +175,18 @@ int mm_init_i2s(void)
                 return 1;
 	}
 
-	mm_i2s_open(0, I2S_MM_SAMPLE_RATE, I2S_MM_CHANNEL_NUMS, I2S_MM_RESOLUTION);
-	mm_i2s_open(1, I2S_MM_SAMPLE_RATE, I2S_MM_CHANNEL_NUMS, I2S_MM_RESOLUTION);
-#ifdef MM_I2S_TEST_DATA
-	mm_i2s_write((uint8_t *)&tx_data_16bit, sizeof(tx_data_16bit));
-#endif
+	audio_manager_handler(AUDIO_SND_CARD_DEFAULT, AUDIO_MANAGER_SET_VOLUME_LEVEL, AUDIO_IN_DEV_AMIC, 3);
+
+	pcm_cfg.rate = I2S_SAMPLE_RATE;
+	pcm_cfg.channels = I2S_CHANNEL_NUMS;
+	pcm_cfg.format = PCM_FORMAT_S16_LE;
+	pcm_cfg.period_count = 2;
+	pcm_cfg.period_size = 8;
+
+	if (snd_pcm_open(AUDIO_SND_CARD_DEFAULT, PCM_IN, &pcm_cfg)) {
+		printf("snd pcm open Fail..\n");
+		return HAL_ERROR;
+	}
 
 	return 0;
 }
@@ -231,148 +222,12 @@ void mm_uninit_i2s(void)
 	free(p->buf);
 	p->buf = NULL;
 
-	mm_i2s_close(0);
-	mm_i2s_close(1);
-}
-
-static int mm_i2s_open(uint8_t direction, uint32_t samplerate, uint8_t channels, uint8_t resolution)
-{
-	uint32_t cmd_param[3];
-	cmd_param[0] = (direction? I2S_MM_LOOP_BACK_EN: 0)<<24 | 0x0<<16 | 0x20<<8 | 0x2;
-	cmd_param[1] = (channels+1)/2*32;
-	cmd_param[2] = samplerate%1000 ? 22579200 : 24576000;
-
-	if (direction != 0 && direction != 1) {
-		printf("Invalid direction %d\n", direction);
-		return HAL_INVALID;
-	}
-
-	if (channels < 1 || channels > 2) {
-		printf("Invalid channels %d\n", channels);
-		return HAL_INVALID;
-	}
-
-	switch(samplerate){
-		case 8000:
-		case 16000:
-		case 32000:
-
-		case 12000:
-		case 24000:
-		case 48000:
-
-		case 11025:
-		case 22050:
-		case 44100:
-			break;
-
-		default:
-			printf("Invalid sample rate %u\n",samplerate);
-			return HAL_INVALID;
-	}
-
-	switch(resolution){
-		case 8:
-			resolution = PCM_FORMAT_S8;
-			break;
-		case 12:
-			resolution = PCM_FORMAT_S12_LE;
-			break;
-		case 16:
-			resolution = PCM_FORMAT_S16_LE;
-			break;
-		case 20:
-			resolution = PCM_FORMAT_S20_LE;
-			break;
-		case 24:
-			resolution = PCM_FORMAT_S24_LE;
-			break;
-		case 28:
-			resolution = PCM_FORMAT_S28_LE;
-			break;
-		case 32:
-			resolution = PCM_FORMAT_S32_LE;
-			break;
-
-		default:
-			printf("Invalid resolution %d\n",resolution);
-			return HAL_INVALID;
-	}
-
-	struct pcm_config pcm_cfg;
-	pcm_cfg.rate = samplerate;
-	pcm_cfg.channels = channels;
-	pcm_cfg.format = resolution;
-	pcm_cfg.period_count = 1;
-	pcm_cfg.period_size = sizeof(tx_data_16bit)/(pcm_format_to_bits(pcm_cfg.format)/8*channels)/pcm_cfg.period_count;
-
-	//cmd_param[0] = I2S_MM_LOOP_BACK_EN<<24 | 0x0<<16 | 0x20<<8 | 0x2;
-	//cmd_param[1] = (channels+1)/2*32;
-	//cmd_param[2] = samplerate%1000 ? 22579200 : 24576000;
-	audio_maneger_ioctl(I2S_MM_SND_CARD, PLATFORM_IOCTL_HW_CONFIG, cmd_param, 3);
-
-	cmd_param[0] = 256<<16 | 256;
-	audio_maneger_ioctl(I2S_MM_SND_CARD, PLATFORM_IOCTL_SW_CONFIG, cmd_param, 1);
-
-	if (snd_pcm_open(I2S_MM_SND_CARD, (Audio_Stream_Dir)direction, &pcm_cfg)) {
-		printf("snd pcm open Fail..\n");
-		return HAL_ERROR;
-	}
-
-	return HAL_OK;
-}
-
-static int mm_i2s_close(uint8_t direction)
-{
-	if (direction != 0 && direction != 1) {
-		printf("Invalid direction %d\n", direction);
-		return HAL_INVALID;
-	}
-
-	if (snd_pcm_close(I2S_MM_SND_CARD, (Audio_Stream_Dir)direction)) {
+	if (snd_pcm_close(I2S_SND_CARD, PCM_IN)) {
 		printf("Snd pcm close Fail..\n");
-		return HAL_ERROR;
 	}
-
-	return HAL_OK;
 }
 
-static int mm_i2s_write(uint8_t *buffer, uint32_t size)
-{
-	uint8_t *buf;
-	uint16_t *pos;
-	uint32_t i;
-
-	if(!buffer || !size){
-		printf("Invalid write buf|size params error!\n");
-		return HAL_INVALID;
-	}
-
-	buf = (uint8_t *)malloc(size);
-	if (buf == NULL) {
-		printf("Malloc I2S write buffer Fail\n");
-		return HAL_ERROR;
-	}
-
-	memcpy(buf, buffer, size);
-	if(snd_pcm_write(I2S_MM_SND_CARD, buf, size) != size){
-		free(buf);
-		printf("I2S write error!\n");
-		return HAL_ERROR;
-	}
-
-	printf("\nwrite buf:\n");
-	pos = (uint16_t*) buf;
-	for(i=0; i<size / 2; i++) {
-		printf("0x%04x ", *(pos+i));
-		if ((i % 8) == 7) printf("\n");
-	}
-	printf("\n\n");
-
-	free(buf);
-	return HAL_OK;
-}
-
+/*
 static void i2s_test_example(void *arg)
 {
 	i2s_data_t *p = (i2s_data_t*) arg;
@@ -386,6 +241,7 @@ static void i2s_test_example(void *arg)
 	printf("\n\ndone\n");
 
 }
+*/
 
 static void thread_i2s(void *arg)
 {
@@ -408,7 +264,7 @@ static void thread_i2s(void *arg)
 				//uint32_t time, cost;
 				//time = OS_TicksToMSecs(OS_GetTicks());
 				pos = (uint16_t*) (p->buf + p->size * p->busy_page);
-				if(snd_pcm_read(I2S_MM_SND_CARD, pos, p->size) != p->size){
+				if(snd_pcm_read(I2S_SND_CARD, pos, p->size) != p->size){
 					printf("I2S read error!\n");
 					return;
 				}
