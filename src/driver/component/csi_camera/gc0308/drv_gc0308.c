@@ -74,6 +74,7 @@
 
 #define GC0308_SCCB_ID			0x21 //GC0308 ID
 #define GC0308_CHIP_ID			0x9b
+#define GC0308_CHIP_ID_A0		0xa0
 #define GC0308_IIC_CLK_FREQ		100000
 
 typedef struct {
@@ -453,7 +454,7 @@ static HAL_Status GC0308_Init(void)
         GC0308_LOGE("GC0308 sccb read error\n");
         return HAL_ERROR;
     } else {
-	    if(chip_id!= GC0308_CHIP_ID) {
+	    if((chip_id!= GC0308_CHIP_ID)&&(chip_id!= GC0308_CHIP_ID_A0)) {
 		    GC0308_LOGE("GC0308 get chip id wrong 0x%02x\n", chip_id);
 		    return HAL_ERROR;
 	    } else {

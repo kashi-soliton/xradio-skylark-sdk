@@ -121,7 +121,7 @@ extern "C" {
 #define	PRJCONF_CSI_SDC_EN				1	
 
 /* Xradio internal codec sound card enable/disable */
-#define PRJCONF_INTERNAL_SOUNDCARD_EN	0
+#define PRJCONF_INTERNAL_SOUNDCARD_EN	1
 
 /* AC107 sound card enable/disable */
 #define PRJCONF_AC107_SOUNDCARD_EN		0

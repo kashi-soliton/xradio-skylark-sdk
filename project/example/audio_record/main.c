@@ -155,6 +155,8 @@ int main(void)
 {
 	platform_init();
 
+	OS_Sleep(3);
+
 	if (fs_ctrl_mount(FS_MNT_DEV_TYPE_SDCARD, 0) != 0) {
 		printf("mount fail\n");
 		return -1;
@@ -165,8 +167,10 @@ int main(void)
 	/* set record volume */
 	audio_manager_handler(AUDIO_SND_CARD_DEFAULT, AUDIO_MANAGER_SET_VOLUME_LEVEL, AUDIO_IN_DEV_AMIC, 3);
 
-	printf("start to use cedarx to record amr/pcm\n");
-	cedarx_record();
+	//printf("start to use cedarx to record amr/pcm\n");
+	//cedarx_record();
+
+	printf("AUDIO_SND_CARD_DEFAULT:%d\n", AUDIO_SND_CARD_DEFAULT);
 
 	printf("start to use audio driver to record pcm\n");
 	audio_driver_record();

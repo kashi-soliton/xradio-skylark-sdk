@@ -34,7 +34,7 @@ int main(void)
 	mimamori.version = version;
 
 	OS_Sleep(1);
-	printf("\n\nMimamori v1.3\n\n");
+	printf("\n\nMimamori v1.4\n\n");
 	platform_init();		
 	si = sysinfo_get();
 	if (si == NULL) {
