@@ -33,8 +33,9 @@ int main(void)
 	mimamori.model = model;
 	mimamori.version = version;
 
+	printf("\n");
 	OS_Sleep(1);
-	printf("\n\nMimamori v1.5\n\n");
+	printf("\n\nMimamori v1.6\n\n");
 	platform_init();		
 	si = sysinfo_get();
 	if (si == NULL) {
@@ -91,6 +92,7 @@ int main(void)
 				wlan_ap_enable();
 				down_ctr = 0;
 			} else {
+				printf("\n");
 				OS_Sleep(1);
 				cmd_reboot_exec(NULL);
 			}

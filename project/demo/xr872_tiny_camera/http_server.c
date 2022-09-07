@@ -1,5 +1,6 @@
-#include "http_server.h"
+#define _GNU_SOURCE
 
+#include "http_server.h"
 #include "kernel/os/os.h"
 #include "common/framework/platform_init.h"
 #include "net/wlan/wlan.h"
@@ -90,7 +91,8 @@ static int get_send(int fd, int w_header)
 }
 
 struct query_t {
-	char val[24];
+	//char val[24];
+	char val[32];
 };
 
 struct header_property_t {
@@ -236,7 +238,7 @@ static int parse(int client_sock, struct request_t * r)
 				if (rc == 0)
 					return 0; /* no data read */
 				buffer_index = 0;
-				printf("Recv:%s\n", buffer);
+				//printf("New recv:%s\n", buffer);
 			}
 			c = buffer[buffer_index];
 			++buffer_index;
@@ -744,6 +746,18 @@ int dealHttpCmdSetSsid(const struct request_t * req){
 	char ssid[32] = {0};
 	char psk[32] = {0};
 	for(i=0;i<req->nquery;i++){
+		tmp = strcasestr(req->query[i].val,"S:");
+		if(tmp!=NULL){
+			tmp = tmp+2;
+			memset(ssid, 0, 32);
+			URL_dec(ssid, tmp, strlen(tmp));
+		}
+		tmp = strcasestr(req->query[i].val,"P:");
+		if(tmp!=NULL){
+			tmp = tmp+2;
+			memset(psk, 0, 32);
+			URL_dec(psk, tmp, strlen(tmp));
+		}
 		tmp = strstr(req->query[i].val,"ssid");
 		if(tmp!=NULL){
 			tmp = tmp+5;
@@ -766,7 +780,7 @@ int dealHttpCmdSetSsid(const struct request_t * req){
 		memcpy(ppsk, psk, strlen((char*)psk));
 		si->wlan_mode = WLAN_MODE_STA;
 		sysinfo_save();
-		printf("new ssid: %s, psk: %s\n", pssid, ppsk);
+		printf("new ssid:%s, psk:%s\n", pssid, ppsk);
 	}
 	return 0;
 }

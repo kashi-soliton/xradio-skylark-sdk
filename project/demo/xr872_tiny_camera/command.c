@@ -27,8 +27,13 @@
  *  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#define _GNU_SOURCE
+
 #include "common/cmd/cmd_util.h"
 #include "common/cmd/cmd.h"
+
+#include "common/framework/sysinfo.h"
+
 
 #if PRJCONF_NET_EN
 
@@ -38,6 +43,43 @@
 /*
  * net commands
  */
+static enum cmd_status cmd_setwifi_exec(char *cmd)
+{
+	struct sysinfo *si = sysinfo_get();
+	char *ssid, *psk, *tmp;
+	//printf( "current ssid:%s\n", si->wlan_sta_param.ssid);
+	//printf( "current psk:%s\n", si->wlan_sta_param.psk);
+	//printf("cmd:%s\n", cmd);
+	ssid = strcasestr(cmd, "S:");
+	if (ssid) ssid += 2;
+	psk = strcasestr(cmd, "P:");
+	if (psk) psk += 2;
+	//
+	if (ssid) {
+		tmp = strstr(ssid, ";");
+		if (tmp) *tmp = '\0';
+		printf("ssid:%s\n", ssid);
+	}
+	if (psk) {
+		tmp = strstr(psk, ";");
+		if (tmp) *tmp = '\0';
+		printf("psk:%s\n", psk);
+	}
+	if (ssid && psk) {
+		uint8_t *pssid = si->wlan_sta_param.ssid;
+		uint8_t *ppsk = si->wlan_sta_param.psk;
+		memset(pssid, 0, SYSINFO_SSID_LEN_MAX);
+		memset(ppsk, 0, SYSINFO_PSK_LEN_MAX);
+		memcpy(pssid, ssid, strlen(ssid));
+		memcpy(ppsk, psk, strlen(psk));
+		si->wlan_mode = WLAN_MODE_STA;
+		sysinfo_save();
+		return CMD_STATUS_OK;
+	} else {
+		return CMD_STATUS_INVALID_ARG;
+	}
+}
+
 static const struct cmd_data g_net_cmds[] = {
 	{ "mode",		cmd_wlan_mode_exec },
 #ifdef __CONFIG_WLAN_AP
@@ -82,6 +124,7 @@ static const struct cmd_data g_main_cmds[] = {
 	//{ "gpio",	cmd_gpio_exec },
 	{ "sysinfo",	cmd_sysinfo_exec },
 	//{ "hdcpd",	cmd_dhcpd_exec },
+	{ "setwifi",	cmd_setwifi_exec },
 };
 
 void main_cmd_exec(char *cmd)
